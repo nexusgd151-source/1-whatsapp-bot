@@ -1,20 +1,21 @@
-const express = require("express");
+import express from "express";
+
 const app = express();
 
-// VARIABLES
-const PORT = process.env.PORT || 3000;
-const VERIFY_TOKEN = "mi_token_secreto"; // 👈 EL MISMO que pusiste en Meta
-
-// MIDDLEWARE
+// 👇 IMPORTANTE: para leer JSON de Meta
 app.use(express.json());
 
-// RUTA DE PRUEBA
-app.get("/", (req, res) => {
-  res.send("Bot activo 🚀");
+// 👉 Webhook de Meta (POST)
+app.post("/webhook", (req, res) => {
+  console.log("🔥 WEBHOOK HIT");
+  console.log(JSON.stringify(req.body, null, 2));
+  res.sendStatus(200);
 });
 
-// VERIFICACIÓN DEL WEBHOOK (META)
+// 👉 Verificación de Meta (GET)
 app.get("/webhook", (req, res) => {
+  const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
@@ -23,19 +24,12 @@ app.get("/webhook", (req, res) => {
     console.log("✅ Webhook verificado");
     res.status(200).send(challenge);
   } else {
-    console.log("❌ Verificación fallida");
     res.sendStatus(403);
   }
 });
 
-// RECEPCIÓN DE MENSAJES (DEBUG)
-app.post("/webhook", (req, res) => {
-  console.log("🔥 WEBHOOK HIT");
-  console.log(JSON.stringify(req.body, null, 2));
-  res.sendStatus(200);
-});
-
-// SERVIDOR
+// 👉 Puerto para Railway
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
 });
