@@ -13,7 +13,7 @@ app.post("/webhook", (req, res) => {
 });
 
 // 👉 Verificación de Meta (GET)
-app.post("/webhook", (req, res) => {
+app.get("/webhook", (req, res) => {
   const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
   const mode = req.query["hub.mode"];
