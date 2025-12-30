@@ -5,7 +5,7 @@ const app = express();
 // Para leer JSON de Meta
 app.use(express.json());
 
-// 👉 Verificación de Meta (GET) ← ESTE ERA EL ERROR
+// 👉 Verificación de Meta (GET)
 app.get("/webhook", (req, res) => {
   const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
@@ -13,10 +13,16 @@ app.get("/webhook", (req, res) => {
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
+  console.log("MODE:", mode);
+  console.log("TOKEN:", token);
+  console.log("VERIFY_TOKEN:", VERIFY_TOKEN);
+  console.log("CHALLENGE:", challenge);
+
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     console.log("✅ Webhook verificado");
     return res.status(200).send(challenge.toString());
   } else {
+    console.log("❌ Verificación fallida");
     return res.sendStatus(403);
   }
 });
