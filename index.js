@@ -1,4 +1,7 @@
+
+
 const express = require("express");
+const fetch = require("node-fetch");
 
 const app = express();
 
@@ -24,9 +27,9 @@ app.get("/webhook", (req, res) => {
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     console.log("✅ Webhook verificado");
-    res.status(200).send(challenge);
+    return res.status(200).send(challenge);
   } else {
-    res.sendStatus(403);
+    return res.sendStatus(403);
   }
 });
 
@@ -39,15 +42,15 @@ app.post("/webhook", async (req, res) => {
     const message = value?.messages?.[0];
 
     if (!message) {
+      console.log("ℹ️ Evento sin mensaje");
       return res.sendStatus(200);
     }
 
-    const from = message.from; // número del cliente
+    const from = message.from;
     const text = message.text?.body?.toLowerCase();
 
     console.log("📩 Mensaje recibido:", text);
 
-    // RESPUESTA AUTOMÁTICA
     await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
       method: "POST",
       headers: {
@@ -68,9 +71,11 @@ Elige una opción:
       }),
     });
 
+    console.log("✅ Respuesta enviada");
     res.sendStatus(200);
+
   } catch (error) {
-    console.error("❌ Error:", error);
+    console.error("❌ Error en webhook:", error);
     res.sendStatus(500);
   }
 });
