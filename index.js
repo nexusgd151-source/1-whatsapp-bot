@@ -5,6 +5,8 @@ const express = require("express");
 const fetch = require("node-fetch");
 
 const app = express();
+const userSessions = {};
+
 
 // VARIABLES
 const PORT = process.env.PORT || 3000;
@@ -42,15 +44,90 @@ app.post("/webhook", async (req, res) => {
     const value = changes?.value;
     const message = value?.messages?.[0];
 
-    if (!message) {
-      console.log("ℹ️ Evento sin mensaje");
-      return res.sendStatus(200);
-    }
+    if (!message) return res.sendStatus(200);
 
     const from = message.from;
-    const text = message.text?.body?.toLowerCase();
+    const text = message.text?.body?.trim().toLowerCase();
 
-    console.log("📩 Mensaje recibido:", text);
+    if (!userSessions[from]) {
+      userSessions[from] = {
+        step: "start",
+        order: {}
+      };
+    }
+
+    const session = userSessions[from];
+    let reply = "";
+
+    console.log("➡️ Paso:", session.step);
+    console.log("📩 Mensaje:", text);
+
+    switch (session.step) {
+      case "start":
+        reply = `🍕 Bienvenido a Pizzería Villa
+
+¿Qué pizza deseas?
+Ejemplo:
+- Pepperoni
+- Hawaiana
+- Mitad Pepperoni / Mitad Jamón`;
+        session.step = "pizza";
+        break;
+
+      case "pizza":
+        session.order.pizza = text;
+        reply = "📏 ¿Qué tamaño?\nChica / Mediana / Grande";
+        session.step = "size";
+        break;
+
+      case "size":
+        session.order.size = text;
+        reply = "🧀 ¿Extras?\nNinguno / Orilla de queso / Extra queso";
+        session.step = "extras";
+        break;
+
+      case "extras":
+        session.order.extras = text;
+        reply = "🔢 ¿Cuántas pizzas?";
+        session.step = "quantity";
+        break;
+
+      case "quantity":
+        session.order.quantity = text;
+        reply = "📍 Escribe tu dirección completa";
+        session.step = "address";
+        break;
+
+      case "address":
+        session.order.address = text;
+        reply = "📞 Escribe tu número de teléfono";
+        session.step = "phone";
+        break;
+
+      case "phone":
+        session.order.phone = text;
+
+        reply = `
+🧾 PEDIDO CONFIRMADO
+
+🍕 Pizza: ${session.order.pizza}
+📏 Tamaño: ${session.order.size}
+🧀 Extras: ${session.order.extras}
+🔢 Cantidad: ${session.order.quantity}
+
+📍 Dirección:
+${session.order.address}
+
+📞 Teléfono:
+${session.order.phone}
+
+🙏 Gracias por tu pedido
+Tiempo estimado: 35 minutos
+`;
+
+        delete userSessions[from];
+        break;
+    }
 
     await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
       method: "POST",
@@ -61,22 +138,14 @@ app.post("/webhook", async (req, res) => {
       body: JSON.stringify({
         messaging_product: "whatsapp",
         to: from,
-        text: {
-          body: `🍕 ¡Bienvenido a Pizzería Villa!
-
-Elige una opción:
-1️⃣ Ver menú
-2️⃣ Hacer pedido
-3️⃣ Horarios y ubicación`,
-        },
+        text: { body: reply },
       }),
     });
 
-    console.log("✅ Respuesta enviada");
     res.sendStatus(200);
 
   } catch (error) {
-    console.error("❌ Error en webhook:", error);
+    console.error("❌ Error:", error);
     res.sendStatus(500);
   }
 });
