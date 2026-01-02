@@ -44,8 +44,13 @@ app.post("/webhook", async (req, res) => {
 
     const from = message.from;
     const messageType = message.type;
+
     const text = message.text?.body?.trim();
-    const buttonText = message.button?.text;
+
+    const buttonText =
+      messageType === "interactive"
+        ? message.interactive?.button_reply?.title
+        : null;
 
     if (!userSessions[from]) {
       userSessions[from] = {
@@ -71,7 +76,7 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "pizza":
-        if (messageType !== "button") {
+        if (messageType !== "interactive") {
           replyPayload = textMessage("❌ Usa los botones para elegir la pizza.");
           break;
         }
@@ -84,7 +89,7 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "size":
-        if (messageType !== "button") {
+        if (messageType !== "interactive") {
           replyPayload = textMessage("❌ Usa los botones para elegir el tamaño.");
           break;
         }
@@ -97,14 +102,14 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "extras":
-        if (messageType !== "button") {
+        if (messageType !== "interactive") {
           replyPayload = textMessage("❌ Usa los botones para elegir los extras.");
           break;
         }
         session.order.extras = buttonText;
         session.step = "address";
         replyPayload = textMessage(
-          "📍 Escribe tu *dirección completa* (calle, número y colonia):"
+          "📍 Escribe tu *dirección completa*:"
         );
         break;
 
