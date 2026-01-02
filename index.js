@@ -2,203 +2,283 @@ const express = require("express");
 const fetch = require("node-fetch");
 
 const app = express();
-const userSessions = {};
+app.use(express.json());
 
+// ====================
 // VARIABLES
+// ====================
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
-// MIDDLEWARE
-app.use(express.json());
+// ====================
+// SESIONES
+// ====================
+const sessions = {};
 
-// RUTA DE PRUEBA
+// ====================
+// PRECIOS
+// ====================
+const PRICES = {
+  grande: 150,
+  extragrande: 190,
+  orilla: 40,
+  extra: 15
+};
+
+// ====================
+// RUTA TEST
+// ====================
 app.get("/", (req, res) => {
   res.send("Bot activo 🚀");
 });
 
-// VERIFICACIÓN WEBHOOK
+// ====================
+// WEBHOOK VERIFY
+// ====================
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("✅ Webhook verificado");
     return res.status(200).send(challenge);
-  } else {
-    return res.sendStatus(403);
   }
+  res.sendStatus(403);
 });
 
-// RECIBIR MENSAJES
+// ====================
+// WEBHOOK MENSAJES
+// ====================
 app.post("/webhook", async (req, res) => {
   try {
-    const entry = req.body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
-    const message = value?.messages?.[0];
-
+    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!message) return res.sendStatus(200);
 
     const from = message.from;
-    const messageType = message.type;
+    const type = message.type;
+    const text = message.text?.body;
+    const button = message.button?.text;
 
-    const text = message.text?.body?.trim();
-
-    const buttonText =
-      messageType === "interactive"
-        ? message.interactive?.button_reply?.title
-        : null;
-
-    if (!userSessions[from]) {
-      userSessions[from] = {
-        step: "start",
-        order: {}
+    if (!sessions[from]) {
+      sessions[from] = {
+        step: "menu",
+        pizzas: [],
+        currentPizza: null
       };
     }
 
-    const session = userSessions[from];
-    let replyPayload = null;
+    const session = sessions[from];
+    let reply = null;
 
-    console.log("➡️ Paso:", session.step);
-    console.log("📩 Tipo:", messageType, "Contenido:", text || buttonText);
-
+    // ====================
+    // FLUJO
+    // ====================
     switch (session.step) {
 
-      case "start":
-        replyPayload = interactiveButtons(
-          "🍕 Bienvenido a *Pizzería Villa*\n¿Qué pizza deseas?",
-          ["Pepperoni", "Hawaiana", "Mitad / Mitad"]
+      case "menu":
+        reply = buttons(
+          "🍕 Bienvenido a *Pizzería Villa*\n¿Qué deseas hacer?",
+          ["📖 Menú", "🛒 Realizar pedido", "❌ Cancelar"]
         );
-        session.step = "pizza";
+        session.step = "menu_option";
         break;
 
-      case "pizza":
-        if (messageType !== "interactive") {
-          replyPayload = textMessage("❌ Usa los botones para elegir la pizza.");
+      case "menu_option":
+        if (type !== "button") {
+          reply = textMsg("❌ Usa los botones.");
           break;
         }
-        session.order.pizza = buttonText;
+
+        if (button.includes("pedido")) {
+          session.step = "pizza_type";
+          session.currentPizza = { extras: [] };
+          reply = buttons(
+            "🍕 ¿Qué pizza deseas?",
+            ["Pepperoni", "Carnes frías", "Hawaiana", "Mexicana"]
+          );
+        } else {
+          reply = textMsg("👋 Gracias por visitarnos.");
+          delete sessions[from];
+        }
+        break;
+
+      case "pizza_type":
+        if (type !== "button") {
+          reply = textMsg("❌ Usa botones.");
+          break;
+        }
+        session.currentPizza.type = button;
         session.step = "size";
-        replyPayload = interactiveButtons(
-          "📏 Elige el tamaño:",
-          ["Chica", "Mediana", "Grande"]
+        reply = buttons(
+          "📏 Elige tamaño:",
+          ["Grande (8 rebanadas)", "Extra grande (10 rebanadas)"]
         );
         break;
 
       case "size":
-        if (messageType !== "interactive") {
-          replyPayload = textMessage("❌ Usa los botones para elegir el tamaño.");
+        if (type !== "button") {
+          reply = textMsg("❌ Usa botones.");
           break;
         }
-        session.order.size = buttonText;
+        session.currentPizza.size = button;
+        session.step = "crust";
+        reply = buttons(
+          "🧀 ¿Agregar orilla de queso? (+$40)",
+          ["Sí", "No"]
+        );
+        break;
+
+      case "crust":
+        if (type !== "button") {
+          reply = textMsg("❌ Usa botones.");
+          break;
+        }
+        session.currentPizza.crust = button === "Sí";
         session.step = "extras";
-        replyPayload = interactiveButtons(
-          "🧀 ¿Extras?",
-          ["Ninguno", "Orilla de queso", "Extra queso"]
+        reply = buttons(
+          "➕ Extras ($15 c/u)",
+          ["Pepperoni", "Jamón", "Jalapeño", "Piña", "Chorizo", "Queso", "Tocino", "Ninguno"]
         );
         break;
 
       case "extras":
-        if (messageType !== "interactive") {
-          replyPayload = textMessage("❌ Usa los botones para elegir los extras.");
+        if (type !== "button") {
+          reply = textMsg("❌ Usa botones.");
           break;
         }
-        session.order.extras = buttonText;
-        session.step = "address";
-        replyPayload = textMessage(
-          "📍 Escribe tu *dirección completa*:"
-        );
+
+        if (button !== "Ninguno") {
+          session.currentPizza.extras.push(button);
+          reply = buttons(
+            `✅ ${button} agregado\n¿Otro extra?`,
+            ["Sí", "No"]
+          );
+          session.step = "more_extras";
+        } else {
+          session.step = "another_pizza";
+          session.pizzas.push(session.currentPizza);
+          reply = buttons(
+            "🍕 ¿Deseas agregar otra pizza?",
+            ["Sí", "No"]
+          );
+        }
+        break;
+
+      case "more_extras":
+        if (button === "Sí") {
+          session.step = "extras";
+          reply = buttons(
+            "➕ Extras ($15 c/u)",
+            ["Pepperoni", "Jamón", "Jalapeño", "Piña", "Chorizo", "Queso", "Tocino", "Ninguno"]
+          );
+        } else {
+          session.pizzas.push(session.currentPizza);
+          session.step = "another_pizza";
+          reply = buttons(
+            "🍕 ¿Agregar otra pizza?",
+            ["Sí", "No"]
+          );
+        }
+        break;
+
+      case "another_pizza":
+        if (button === "Sí") {
+          session.currentPizza = { extras: [] };
+          session.step = "pizza_type";
+          reply = buttons(
+            "🍕 ¿Qué pizza deseas?",
+            ["Pepperoni", "Carnes frías", "Hawaiana", "Mexicana"]
+          );
+        } else {
+          session.step = "address";
+          reply = textMsg("📍 Escribe tu dirección completa:");
+        }
         break;
 
       case "address":
-        if (messageType !== "text") {
-          replyPayload = textMessage("❌ Aquí debes escribir tu dirección.");
-          break;
-        }
-        session.order.address = text;
+        session.address = text;
         session.step = "phone";
-        replyPayload = textMessage("📞 Escribe tu *número de teléfono*:");
+        reply = textMsg("📞 Escribe tu número de teléfono:");
         break;
 
       case "phone":
-        if (messageType !== "text") {
-          replyPayload = textMessage("❌ Aquí debes escribir tu número.");
-          break;
-        }
-        session.order.phone = text;
+        session.phone = text;
 
-        replyPayload = textMessage(
-`🧾 *PEDIDO CONFIRMADO*
+        let total = 0;
+        let summary = "🧾 *RESUMEN DEL PEDIDO*\n\n";
 
-🍕 Pizza: ${session.order.pizza}
-📏 Tamaño: ${session.order.size}
-🧀 Extras: ${session.order.extras}
+        session.pizzas.forEach((p, i) => {
+          const sizePrice = p.size.includes("Extra") ? PRICES.extragrande : PRICES.grande;
+          total += sizePrice;
+          if (p.crust) total += PRICES.orilla;
+          total += p.extras.length * PRICES.extra;
 
-📍 Dirección:
-${session.order.address}
+          summary += `🍕 Pizza ${i + 1}\n`;
+          summary += `- ${p.type}\n- ${p.size}\n`;
+          if (p.crust) summary += "- Orilla de queso\n";
+          if (p.extras.length) summary += `- Extras: ${p.extras.join(", ")}\n`;
+          summary += "\n";
+        });
 
-📞 Teléfono:
-${session.order.phone}
+        summary += `💰 Total: $${total}\n\n📍 ${session.address}\n📞 ${session.phone}\n⏱ 35 minutos`;
 
-⏱ Tiempo estimado: 35 minutos
-🙏 ¡Gracias por tu pedido!`
-        );
-
-        delete userSessions[from];
+        reply = textMsg(summary);
+        delete sessions[from];
         break;
     }
 
-    if (replyPayload) {
-      await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to: from,
-          ...replyPayload,
-        }),
-      });
+    if (reply) {
+      await sendMessage(from, reply);
     }
 
     res.sendStatus(200);
-
-  } catch (error) {
-    console.error("❌ Error:", error);
+  } catch (e) {
+    console.error(e);
     res.sendStatus(500);
   }
 });
 
-// FUNCIONES AUXILIARES
-function textMessage(body) {
-  return {
-    type: "text",
-    text: { body }
-  };
+// ====================
+// HELPERS
+// ====================
+function textMsg(body) {
+  return { type: "text", text: { body } };
 }
 
-function interactiveButtons(text, options) {
+function buttons(text, options) {
   return {
     type: "interactive",
     interactive: {
       type: "button",
       body: { text },
       action: {
-        buttons: options.map(opt => ({
+        buttons: options.map(o => ({
           type: "reply",
-          reply: { id: opt.toLowerCase(), title: opt }
+          reply: { id: o, title: o }
         }))
       }
     }
   };
 }
 
-// SERVIDOR
+async function sendMessage(to, payload) {
+  await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      ...payload
+    })
+  });
+}
+
+// ====================
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+  console.log("🚀 Bot corriendo");
 });
