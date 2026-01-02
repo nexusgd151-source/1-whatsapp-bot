@@ -1,12 +1,8 @@
-
-
-
 const express = require("express");
 const fetch = require("node-fetch");
 
 const app = express();
 const userSessions = {};
-
 
 // VARIABLES
 const PORT = process.env.PORT || 3000;
@@ -47,7 +43,9 @@ app.post("/webhook", async (req, res) => {
     if (!message) return res.sendStatus(200);
 
     const from = message.from;
-    const text = message.text?.body?.trim().toLowerCase();
+    const messageType = message.type;
+    const text = message.text?.body?.trim();
+    const buttonText = message.button?.text;
 
     if (!userSessions[from]) {
       userSessions[from] = {
@@ -57,63 +55,82 @@ app.post("/webhook", async (req, res) => {
     }
 
     const session = userSessions[from];
-    let reply = "";
+    let replyPayload = null;
 
     console.log("➡️ Paso:", session.step);
-    console.log("📩 Mensaje:", text);
+    console.log("📩 Tipo:", messageType, "Contenido:", text || buttonText);
 
     switch (session.step) {
-      case "start":
-        reply = `🍕 Bienvenido a Pizzería Villa
 
-¿Qué pizza deseas?
-Ejemplo:
-- Pepperoni
-- Hawaiana
-- Mitad Pepperoni / Mitad Jamón`;
+      case "start":
+        replyPayload = interactiveButtons(
+          "🍕 Bienvenido a *Pizzería Villa*\n¿Qué pizza deseas?",
+          ["Pepperoni", "Hawaiana", "Mitad / Mitad"]
+        );
         session.step = "pizza";
         break;
 
       case "pizza":
-        session.order.pizza = text;
-        reply = "📏 ¿Qué tamaño?\nChica / Mediana / Grande";
+        if (messageType !== "button") {
+          replyPayload = textMessage("❌ Usa los botones para elegir la pizza.");
+          break;
+        }
+        session.order.pizza = buttonText;
         session.step = "size";
+        replyPayload = interactiveButtons(
+          "📏 Elige el tamaño:",
+          ["Chica", "Mediana", "Grande"]
+        );
         break;
 
       case "size":
-        session.order.size = text;
-        reply = "🧀 ¿Extras?\nNinguno / Orilla de queso / Extra queso";
+        if (messageType !== "button") {
+          replyPayload = textMessage("❌ Usa los botones para elegir el tamaño.");
+          break;
+        }
+        session.order.size = buttonText;
         session.step = "extras";
+        replyPayload = interactiveButtons(
+          "🧀 ¿Extras?",
+          ["Ninguno", "Orilla de queso", "Extra queso"]
+        );
         break;
 
       case "extras":
-        session.order.extras = text;
-        reply = "🔢 ¿Cuántas pizzas?";
-        session.step = "quantity";
-        break;
-
-      case "quantity":
-        session.order.quantity = text;
-        reply = "📍 Escribe tu dirección completa";
+        if (messageType !== "button") {
+          replyPayload = textMessage("❌ Usa los botones para elegir los extras.");
+          break;
+        }
+        session.order.extras = buttonText;
         session.step = "address";
+        replyPayload = textMessage(
+          "📍 Escribe tu *dirección completa* (calle, número y colonia):"
+        );
         break;
 
       case "address":
+        if (messageType !== "text") {
+          replyPayload = textMessage("❌ Aquí debes escribir tu dirección.");
+          break;
+        }
         session.order.address = text;
-        reply = "📞 Escribe tu número de teléfono";
         session.step = "phone";
+        replyPayload = textMessage("📞 Escribe tu *número de teléfono*:");
         break;
 
       case "phone":
+        if (messageType !== "text") {
+          replyPayload = textMessage("❌ Aquí debes escribir tu número.");
+          break;
+        }
         session.order.phone = text;
 
-        reply = `
-🧾 PEDIDO CONFIRMADO
+        replyPayload = textMessage(
+`🧾 *PEDIDO CONFIRMADO*
 
 🍕 Pizza: ${session.order.pizza}
 📏 Tamaño: ${session.order.size}
 🧀 Extras: ${session.order.extras}
-🔢 Cantidad: ${session.order.quantity}
 
 📍 Dirección:
 ${session.order.address}
@@ -121,26 +138,28 @@ ${session.order.address}
 📞 Teléfono:
 ${session.order.phone}
 
-🙏 Gracias por tu pedido
-Tiempo estimado: 35 minutos
-`;
+⏱ Tiempo estimado: 35 minutos
+🙏 ¡Gracias por tu pedido!`
+        );
 
         delete userSessions[from];
         break;
     }
 
-    await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: from,
-        text: { body: reply },
-      }),
-    });
+    if (replyPayload) {
+      await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: from,
+          ...replyPayload,
+        }),
+      });
+    }
 
     res.sendStatus(200);
 
@@ -149,6 +168,30 @@ Tiempo estimado: 35 minutos
     res.sendStatus(500);
   }
 });
+
+// FUNCIONES AUXILIARES
+function textMessage(body) {
+  return {
+    type: "text",
+    text: { body }
+  };
+}
+
+function interactiveButtons(text, options) {
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text },
+      action: {
+        buttons: options.map(opt => ({
+          type: "reply",
+          reply: { id: opt.toLowerCase(), title: opt }
+        }))
+      }
+    }
+  };
+}
 
 // SERVIDOR
 app.listen(PORT, () => {
