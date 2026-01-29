@@ -54,13 +54,28 @@ app.get("/webhook", (req, res) => {
 // ====================
 app.post("/webhook", async (req, res) => {
   try {
-    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    if (!message) return res.sendStatus(200);
+    const value = req.body.entry?.[0]?.changes?.[0]?.value;
+    if (!value?.messages) return res.sendStatus(200);
 
+    const message = value.messages[0];
     const from = message.from;
     const type = message.type;
-    const text = message.text?.body;
-    const button = message.button?.text;
+
+    let text = null;
+    let button = null;
+
+    if (type === "text") {
+      text = message.text.body;
+    }
+
+    if (
+      type === "interactive" &&
+      message.interactive?.button_reply
+    ) {
+      button = message.interactive.button_reply.title;
+    }
+
+    console.log("📩 Mensaje:", type, text || button);
 
     if (!sessions[from]) {
       sessions[from] = {
@@ -75,7 +90,6 @@ app.post("/webhook", async (req, res) => {
 
     switch (session.step) {
 
-      // ====================
       case "menu":
         reply = buttons(
           "🍕 Bienvenido a *Pizzería Villa*\n¿Qué deseas hacer?",
@@ -84,9 +98,8 @@ app.post("/webhook", async (req, res) => {
         session.step = "menu_option";
         break;
 
-      // ====================
       case "menu_option":
-        if (type !== "button") {
+        if (!button) {
           reply = textMsg("❌ Usa los botones.");
           break;
         }
@@ -104,9 +117,8 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ====================
       case "pizza_type":
-        if (type !== "button") {
+        if (!button) {
           reply = textMsg("❌ Usa botones.");
           break;
         }
@@ -118,9 +130,8 @@ app.post("/webhook", async (req, res) => {
         );
         break;
 
-      // ====================
       case "size":
-        if (type !== "button") {
+        if (!button) {
           reply = textMsg("❌ Usa botones.");
           break;
         }
@@ -132,9 +143,8 @@ app.post("/webhook", async (req, res) => {
         );
         break;
 
-      // ====================
       case "crust":
-        if (type !== "button") {
+        if (!button) {
           reply = textMsg("❌ Usa botones.");
           break;
         }
@@ -146,9 +156,8 @@ app.post("/webhook", async (req, res) => {
         );
         break;
 
-      // ====================
       case "extras":
-        if (type !== "button") {
+        if (!button) {
           reply = textMsg("❌ Usa botones.");
           break;
         }
@@ -170,7 +179,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ====================
       case "more_extras":
         if (button === "Sí") {
           session.step = "extras";
@@ -188,7 +196,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ====================
       case "another_pizza":
         if (button === "Sí") {
           session.currentPizza = { extras: [] };
@@ -203,14 +210,12 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ====================
       case "address":
         session.address = text;
         session.step = "phone";
         reply = textMsg("📞 Escribe tu número de teléfono:");
         break;
 
-      // ====================
       case "phone":
         session.phone = text;
 
@@ -226,10 +231,8 @@ app.post("/webhook", async (req, res) => {
           if (p.crust) total += PRICES.orilla;
           total += p.extras.length * PRICES.extra;
 
-          summary += `🍕 *Pizza ${i + 1}*\n`;
-          summary += `• ${p.type}\n`;
-          summary += `• ${p.size}\n`;
-          if (p.crust) summary += `• Orilla de queso (+$${PRICES.orilla})\n`;
+          summary += `🍕 *Pizza ${i + 1}*\n• ${p.type}\n• ${p.size}\n`;
+          if (p.crust) summary += `• Orilla (+$${PRICES.orilla})\n`;
           if (p.extras.length)
             summary += `• Extras: ${p.extras.join(", ")} (+$${p.extras.length * PRICES.extra})\n`;
           summary += "\n";
@@ -237,11 +240,7 @@ app.post("/webhook", async (req, res) => {
 
         total += PRICES.envio;
 
-        summary += `🚚 *Servicio a domicilio:* $${PRICES.envio}\n\n`;
-        summary += `💰 *TOTAL A PAGAR:* $${total} MXN\n\n`;
-        summary += `📍 *Dirección:*\n${session.address}\n\n`;
-        summary += `📞 *Tel:* ${session.phone}\n\n`;
-        summary += `⏱ *Tiempo estimado:* 35 minutos`;
+        summary += `🚚 Envío: $${PRICES.envio}\n💰 *TOTAL:* $${total} MXN\n\n📍 ${session.address}\n📞 ${session.phone}`;
 
         reply = textMsg(summary);
         delete sessions[from];
@@ -295,7 +294,6 @@ async function sendMessage(to, payload) {
   });
 }
 
-// ====================
 app.listen(PORT, () => {
   console.log("🚀 Bot corriendo correctamente");
 });
