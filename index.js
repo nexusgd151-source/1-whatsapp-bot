@@ -296,6 +296,6 @@ async function sendMessage(to, payload) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log("🚀 Bot corriendo correctamente");
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("🚀 Bot corriendo correctamente en puerto", PORT);
 });
