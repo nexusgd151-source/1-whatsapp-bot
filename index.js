@@ -53,6 +53,8 @@ app.get("/webhook", (req, res) => {
 // WEBHOOK MENSAJES
 // ====================
 app.post("/webhook", async (req, res) => {
+    console.log("🔥 WEBHOOK DISPARADO");
+  console.log(JSON.stringify(req.body, null, 2));
   try {
     const value = req.body.entry?.[0]?.changes?.[0]?.value;
     if (!value?.messages) return res.sendStatus(200);
