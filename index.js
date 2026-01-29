@@ -5,6 +5,13 @@ const app = express();
 app.use(express.json());
 
 // ====================
+// KEEP ALIVE (Railway)
+// ====================
+setInterval(() => {
+  console.log("🫀 Alive");
+}, 30000);
+
+// ====================
 // VARIABLES
 // ====================
 
