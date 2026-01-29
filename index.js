@@ -7,7 +7,7 @@ app.use(express.json());
 // ====================
 // VARIABLES
 // ====================
-const PORT = process.env.PORT || 3000;
+
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
@@ -296,6 +296,8 @@ async function sendMessage(to, payload) {
   });
 }
 
+const PORT = process.env.PORT;
+
 app.listen(PORT, "0.0.0.0", () => {
-  console.log("🚀 Bot corriendo correctamente en puerto", PORT);
+  console.log(`🚀 Bot corriendo correctamente en puerto ${PORT}`);
 });
