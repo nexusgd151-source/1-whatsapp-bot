@@ -1,4 +1,5 @@
 const express = require("express");
+const fetch = require("node-fetch");
 
 const app = express();
 app.use(express.json());
@@ -66,7 +67,6 @@ app.post("/webhook", async (req, res) => {
     let button = null;
 
     if (type === "text") text = message.text.body;
-
     if (type === "interactive" && message.interactive?.button_reply) {
       button = message.interactive.button_reply.title;
     }
@@ -110,10 +110,6 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "pizza_type":
-        if (!button) {
-          reply = textMsg("❌ Usa botones.");
-          break;
-        }
         session.currentPizza.type = button;
         session.step = "size";
         reply = buttons(
@@ -123,10 +119,6 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "size":
-        if (!button) {
-          reply = textMsg("❌ Usa botones.");
-          break;
-        }
         session.currentPizza.size = button;
         session.step = "crust";
         reply = buttons(
@@ -136,10 +128,6 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "crust":
-        if (!button) {
-          reply = textMsg("❌ Usa botones.");
-          break;
-        }
         session.currentPizza.crust = button === "Sí";
         session.step = "extras";
         reply = buttons(
@@ -149,21 +137,14 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "extras":
-        if (!button) {
-          reply = textMsg("❌ Usa botones.");
-          break;
-        }
         if (button !== "Ninguno") {
           session.currentPizza.extras.push(button);
+          reply = buttons("¿Agregar otro extra?", ["Sí", "No"]);
           session.step = "more_extras";
-          reply = buttons(
-            `✅ ${button} agregado\n¿Agregar otro extra?`,
-            ["Sí", "No"]
-          );
         } else {
           session.pizzas.push(session.currentPizza);
           session.step = "another_pizza";
-          reply = buttons("🍕 ¿Deseas agregar otra pizza?", ["Sí", "No"]);
+          reply = buttons("¿Agregar otra pizza?", ["Sí", "No"]);
         }
         break;
 
@@ -177,7 +158,7 @@ app.post("/webhook", async (req, res) => {
         } else {
           session.pizzas.push(session.currentPizza);
           session.step = "another_pizza";
-          reply = buttons("🍕 ¿Agregar otra pizza?", ["Sí", "No"]);
+          reply = buttons("¿Agregar otra pizza?", ["Sí", "No"]);
         }
         break;
 
@@ -208,24 +189,19 @@ app.post("/webhook", async (req, res) => {
         let summary = "🆕 *NUEVO PEDIDO 🍕*\n\n";
 
         session.pizzas.forEach((p, i) => {
-          const sizePrice = p.size.includes("Extra")
-            ? PRICES.extragrande
-            : PRICES.grande;
-
+          const sizePrice = p.size.includes("Extra") ? PRICES.extragrande : PRICES.grande;
           total += sizePrice;
           if (p.crust) total += PRICES.orilla;
           total += p.extras.length * PRICES.extra;
 
           summary += `🍕 *Pizza ${i + 1}*\n• ${p.type}\n• ${p.size}\n`;
-          if (p.crust) summary += `• Orilla (+$${PRICES.orilla})\n`;
-          if (p.extras.length)
-            summary += `• Extras: ${p.extras.join(", ")} (+$${p.extras.length * PRICES.extra})\n`;
+          if (p.crust) summary += `• Orilla (+$40)\n`;
+          if (p.extras.length) summary += `• Extras: ${p.extras.join(", ")}\n`;
           summary += "\n";
         });
 
         total += PRICES.envio;
-
-        summary += `🚚 Envío: $${PRICES.envio}\n💰 *TOTAL:* $${total} MXN\n\n📍 ${session.address}\n📞 ${session.phone}`;
+        summary += `🚚 Envío: $40\n💰 *TOTAL:* $${total} MXN\n\n📍 ${session.address}\n📞 ${session.phone}`;
 
         reply = textMsg(summary);
         delete sessions[from];
@@ -233,11 +209,11 @@ app.post("/webhook", async (req, res) => {
     }
 
     if (reply) await sendMessage(from, reply);
-    return res.sendStatus(200);
+    res.sendStatus(200);
 
   } catch (err) {
     console.error("❌ Error:", err);
-    return res.sendStatus(500);
+    res.sendStatus(500);
   }
 });
 
