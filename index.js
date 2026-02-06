@@ -1,20 +1,11 @@
 const express = require("express");
-const fetch = require("node-fetch");
 
 const app = express();
 app.use(express.json());
 
 // ====================
-// KEEP ALIVE (Railway)
-// ====================
-setInterval(() => {
-  console.log("🫀 Alive");
-}, 30000);
-
-// ====================
 // VARIABLES
 // ====================
-
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
@@ -53,15 +44,16 @@ app.get("/webhook", (req, res) => {
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     return res.status(200).send(challenge);
   }
-  res.sendStatus(403);
+  return res.sendStatus(403);
 });
 
 // ====================
 // WEBHOOK MENSAJES
 // ====================
 app.post("/webhook", async (req, res) => {
-    console.log("🔥 WEBHOOK DISPARADO");
+  console.log("🔥 WEBHOOK DISPARADO");
   console.log(JSON.stringify(req.body, null, 2));
+
   try {
     const value = req.body.entry?.[0]?.changes?.[0]?.value;
     if (!value?.messages) return res.sendStatus(200);
@@ -73,18 +65,11 @@ app.post("/webhook", async (req, res) => {
     let text = null;
     let button = null;
 
-    if (type === "text") {
-      text = message.text.body;
-    }
+    if (type === "text") text = message.text.body;
 
-    if (
-      type === "interactive" &&
-      message.interactive?.button_reply
-    ) {
+    if (type === "interactive" && message.interactive?.button_reply) {
       button = message.interactive.button_reply.title;
     }
-
-    console.log("📩 Mensaje:", type, text || button);
 
     if (!sessions[from]) {
       sessions[from] = {
@@ -98,7 +83,6 @@ app.post("/webhook", async (req, res) => {
     let reply = null;
 
     switch (session.step) {
-
       case "menu":
         reply = buttons(
           "🍕 Bienvenido a *Pizzería Villa*\n¿Qué deseas hacer?",
@@ -112,7 +96,6 @@ app.post("/webhook", async (req, res) => {
           reply = textMsg("❌ Usa los botones.");
           break;
         }
-
         if (button.includes("pedido")) {
           session.step = "pizza_type";
           session.currentPizza = { extras: [] };
@@ -170,7 +153,6 @@ app.post("/webhook", async (req, res) => {
           reply = textMsg("❌ Usa botones.");
           break;
         }
-
         if (button !== "Ninguno") {
           session.currentPizza.extras.push(button);
           session.step = "more_extras";
@@ -181,10 +163,7 @@ app.post("/webhook", async (req, res) => {
         } else {
           session.pizzas.push(session.currentPizza);
           session.step = "another_pizza";
-          reply = buttons(
-            "🍕 ¿Deseas agregar otra pizza?",
-            ["Sí", "No"]
-          );
+          reply = buttons("🍕 ¿Deseas agregar otra pizza?", ["Sí", "No"]);
         }
         break;
 
@@ -198,10 +177,7 @@ app.post("/webhook", async (req, res) => {
         } else {
           session.pizzas.push(session.currentPizza);
           session.step = "another_pizza";
-          reply = buttons(
-            "🍕 ¿Agregar otra pizza?",
-            ["Sí", "No"]
-          );
+          reply = buttons("🍕 ¿Agregar otra pizza?", ["Sí", "No"]);
         }
         break;
 
@@ -257,11 +233,11 @@ app.post("/webhook", async (req, res) => {
     }
 
     if (reply) await sendMessage(from, reply);
-    res.sendStatus(200);
+    return res.sendStatus(200);
 
   } catch (err) {
     console.error("❌ Error:", err);
-    res.sendStatus(500);
+    return res.sendStatus(500);
   }
 });
 
@@ -303,8 +279,10 @@ async function sendMessage(to, payload) {
   });
 }
 
+// ====================
+// SERVER
+// ====================
 const PORT = process.env.PORT || 8080;
-
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot corriendo correctamente en puerto ${PORT}`);
+  console.log(`🚀 Bot corriendo en puerto ${PORT}`);
 });
