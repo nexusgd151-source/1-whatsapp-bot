@@ -12,19 +12,29 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // ====================
-// SESIONES
+// SESIONES (en memoria)
 // ====================
 const sessions = {};
 
 // ====================
-// PRECIOS
+// NORMALIZADOR
+// ====================
+const normalize = text =>
+  text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+// ====================
+// PRECIOS (IDS LIMPIOS)
 // ====================
 const PRICES = {
   pepperoni: { grande: 130, extragrande: 180 },
-  "carnes frías": { grande: 170, extragrande: 220 },
+  carnes_frias: { grande: 170, extragrande: 220 },
   hawaiana: { grande: 150, extragrande: 210 },
   mexicana: { grande: 200, extragrande: 250 },
-  "orilla de queso": { grande: 170, extragrande: 240 },
+  orilla_queso: { grande: 170, extragrande: 240 },
   extra: 15,
   envio: 40
 };
@@ -59,35 +69,44 @@ app.post("/webhook", async (req, res) => {
     const from = msg.from;
 
     let input = null;
+
     if (msg.type === "text") input = msg.text.body;
     if (msg.type === "interactive") {
       input =
-        msg.interactive.button_reply?.title ||
+        msg.interactive.button_reply?.id ||
         msg.interactive.list_reply?.id;
     }
 
     if (typeof input === "string") {
-      input = input.trim().toLowerCase();
+      input = normalize(input);
     }
 
     if (!sessions[from]) {
-      sessions[from] = { step: "menu", pizzas: [] };
+      sessions[from] = {
+        step: "menu",
+        pizzas: []
+      };
     }
 
     const s = sessions[from];
-    let reply;
+    let reply = null;
 
     switch (s.step) {
+
       case "menu":
         reply = buttons(
           "🍕 *Bienvenido a Pizzería Villa*\n¿Qué deseas hacer?",
-          ["📖 Ver menú", "🛒 Realizar pedido", "❌ Cancelar"]
+          [
+            { id: "ver_menu", title: "📖 Ver menú" },
+            { id: "pedido", title: "🛒 Realizar pedido" },
+            { id: "cancelar", title: "❌ Cancelar" }
+          ]
         );
         s.step = "menu_option";
         break;
 
       case "menu_option":
-        if (input === "📖 ver menú") {
+        if (input === "ver_menu") {
           reply = textMsg(
             "📖 *MENÚ*\n\n" +
             "🍕 Pepperoni G $130 | EG $180\n" +
@@ -97,9 +116,8 @@ app.post("/webhook", async (req, res) => {
             "🧀 Orilla de queso G $170 | EG $240\n" +
             "➕ Extra $15\n🚚 Envío $40"
           );
-          s.step = "menu_option";
         } 
-        else if (input === "🛒 realizar pedido") {
+        else if (input === "pedido") {
           s.currentPizza = { extras: [] };
           s.step = "pizza_type";
           reply = list("🍕 Elige tu pizza", [
@@ -107,31 +125,48 @@ app.post("/webhook", async (req, res) => {
               title: "Pizzas",
               rows: [
                 { id: "pepperoni", title: "Pepperoni" },
-                { id: "carnes frías", title: "Carnes frías" },
+                { id: "carnes_frias", title: "Carnes frías" },
                 { id: "hawaiana", title: "Hawaiana" },
                 { id: "mexicana", title: "Mexicana" },
-                { id: "orilla de queso", title: "Orilla de queso" }
+                { id: "orilla_queso", title: "Orilla de queso" }
               ]
             }
           ]);
         } else {
-          reply = textMsg("👋 Gracias por visitarnos");
+          reply = textMsg("👋 Pedido cancelado. ¡Vuelve pronto!");
           delete sessions[from];
         }
         break;
 
       case "pizza_type":
+        if (!PRICES[input]) {
+          reply = textMsg("❌ Pizza inválida, intenta otra.");
+          break;
+        }
         s.currentPizza.type = input;
         s.step = "size";
-        reply = buttons("📏 Tamaño", ["Grande", "Extra grande"]);
+        reply = buttons("📏 Tamaño", [
+          { id: "grande", title: "Grande" },
+          { id: "extragrande", title: "Extra grande" }
+        ]);
         break;
 
       case "size":
-        s.currentPizza.size = input === "grande" ? "grande" : "extragrande";
+        if (!["grande", "extragrande"].includes(input)) {
+          reply = textMsg("❌ Tamaño inválido.");
+          break;
+        }
+        s.currentPizza.size = input;
         s.step = "extras";
         reply = buttons("➕ Extras ($15)", [
-          "Pepperoni", "Jamón", "Jalapeño", "Piña",
-          "Chorizo", "Queso", "Tocino", "Ninguno"
+          { id: "pepperoni", title: "Pepperoni" },
+          { id: "jamon", title: "Jamón" },
+          { id: "jalapeno", title: "Jalapeño" },
+          { id: "pina", title: "Piña" },
+          { id: "chorizo", title: "Chorizo" },
+          { id: "queso", title: "Queso" },
+          { id: "tocino", title: "Tocino" },
+          { id: "ninguno", title: "Ninguno" }
         ]);
         break;
 
@@ -139,30 +174,45 @@ app.post("/webhook", async (req, res) => {
         if (input !== "ninguno") {
           s.currentPizza.extras.push(input);
           s.step = "more_extras";
-          reply = buttons("¿Agregar otro extra?", ["Sí", "No"]);
-        } else {
-          s.pizzas.push(s.currentPizza);
-          s.step = "another_pizza";
-          reply = buttons("¿Agregar otra pizza?", ["Sí", "No"]);
-        }
-        break;
-
-      case "more_extras":
-        if (input === "sí") {
-          s.step = "extras";
-          reply = buttons("➕ Extras ($15)", [
-            "Pepperoni", "Jamón", "Jalapeño", "Piña",
-            "Chorizo", "Queso", "Tocino", "Ninguno"
+          reply = buttons("¿Agregar otro extra?", [
+            { id: "si", title: "Sí" },
+            { id: "no", title: "No" }
           ]);
         } else {
           s.pizzas.push(s.currentPizza);
           s.step = "another_pizza";
-          reply = buttons("¿Agregar otra pizza?", ["Sí", "No"]);
+          reply = buttons("¿Agregar otra pizza?", [
+            { id: "si", title: "Sí" },
+            { id: "no", title: "No" }
+          ]);
+        }
+        break;
+
+      case "more_extras":
+        if (input === "si") {
+          s.step = "extras";
+          reply = buttons("➕ Extras ($15)", [
+            { id: "pepperoni", title: "Pepperoni" },
+            { id: "jamon", title: "Jamón" },
+            { id: "jalapeno", title: "Jalapeño" },
+            { id: "pina", title: "Piña" },
+            { id: "chorizo", title: "Chorizo" },
+            { id: "queso", title: "Queso" },
+            { id: "tocino", title: "Tocino" },
+            { id: "ninguno", title: "Ninguno" }
+          ]);
+        } else {
+          s.pizzas.push(s.currentPizza);
+          s.step = "another_pizza";
+          reply = buttons("¿Agregar otra pizza?", [
+            { id: "si", title: "Sí" },
+            { id: "no", title: "No" }
+          ]);
         }
         break;
 
       case "another_pizza":
-        if (input === "sí") {
+        if (input === "si") {
           s.currentPizza = { extras: [] };
           s.step = "pizza_type";
           reply = list("🍕 Elige tu pizza", [
@@ -170,24 +220,24 @@ app.post("/webhook", async (req, res) => {
               title: "Pizzas",
               rows: [
                 { id: "pepperoni", title: "Pepperoni" },
-                { id: "carnes frías", title: "Carnes frías" },
+                { id: "carnes_frias", title: "Carnes frías" },
                 { id: "hawaiana", title: "Hawaiana" },
                 { id: "mexicana", title: "Mexicana" },
-                { id: "orilla de queso", title: "Orilla de queso" }
+                { id: "orilla_queso", title: "Orilla de queso" }
               ]
             }
           ]);
         } else {
           s.step = "delivery";
           reply = buttons("🚚 ¿Cómo deseas recibir tu pedido?", [
-            "🏍️ A domicilio (+$40)",
-            "🏪 Pasar a recoger"
+            { id: "domicilio", title: "🏍️ A domicilio (+$40)" },
+            { id: "recoger", title: "🏪 Pasar a recoger" }
           ]);
         }
         break;
 
       case "delivery":
-        s.delivery = input.includes("domicilio");
+        s.delivery = input === "domicilio";
         if (s.delivery) {
           s.step = "address";
           reply = textMsg("📍 Escribe tu dirección:");
@@ -224,8 +274,7 @@ app.post("/webhook", async (req, res) => {
 
       if (s.delivery) {
         total += PRICES.envio;
-        text += "🚚 Envío: $40\n";
-        text += `📍 ${s.address}\n📞 ${s.phone}\n\n`;
+        text += `🚚 Envío: $40\n📍 ${s.address}\n📞 ${s.phone}\n\n`;
       } else {
         text += "🏪 *Pasa a recoger*\n\n";
       }
@@ -238,8 +287,8 @@ app.post("/webhook", async (req, res) => {
     if (reply) await sendMessage(from, reply);
     res.sendStatus(200);
 
-  } catch (e) {
-    console.error(e);
+  } catch (err) {
+    console.error(err);
     res.sendStatus(500);
   }
 });
@@ -247,7 +296,10 @@ app.post("/webhook", async (req, res) => {
 // ====================
 // HELPERS
 // ====================
-const textMsg = body => ({ type: "text", text: { body } });
+const textMsg = body => ({
+  type: "text",
+  text: { body }
+});
 
 const buttons = (text, options) => ({
   type: "interactive",
@@ -257,7 +309,10 @@ const buttons = (text, options) => ({
     action: {
       buttons: options.map(o => ({
         type: "reply",
-        reply: { id: o, title: o }
+        reply: {
+          id: o.id,
+          title: o.title
+        }
       }))
     }
   }
@@ -268,7 +323,10 @@ const list = (text, sections) => ({
   interactive: {
     type: "list",
     body: { text },
-    action: { button: "Seleccionar", sections }
+    action: {
+      button: "Seleccionar",
+      sections
+    }
   }
 });
 
@@ -279,7 +337,11 @@ async function sendMessage(to, payload) {
       Authorization: `Bearer ${WHATSAPP_TOKEN}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ messaging_product: "whatsapp", to, ...payload })
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      ...payload
+    })
   });
 }
 
