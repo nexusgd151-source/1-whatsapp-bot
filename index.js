@@ -1,182 +1,253 @@
-import express from "express";
-import axios from "axios";
+const express = require("express");
+const axios = require("axios");
+require("dotenv").config();
 
 const app = express();
 app.use(express.json());
 
-const users = {};
+// ====================
+// CONFIG
+// ====================
+const TOKEN = process.env.TOKEN;
+const PHONE_ID = process.env.PHONE_ID;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "pizza_token_123";
 
-const pizzas = {
-  pepperoni: { G: 130, EG: 180 },
-  hawaiana: { G: 150, EG: 210 },
-  mexicana: { G: 200, EG: 250 }
+// ====================
+// SESIONES EN MEMORIA
+// ====================
+const sessions = {};
+
+// ====================
+// DATOS
+// ====================
+const PIZZAS = {
+  pepperoni: { g: 130, eg: 180 },
+  hawaiana: { g: 150, eg: 210 },
+  mexicana: { g: 200, eg: 250 }
 };
 
-const extras = ["Queso", "Piña", "Champiñones"];
+const EXTRAS = {
+  queso: 15,
+  pina: 15,
+  jalapeno: 15,
+  champinones: 15
+};
 
-const sendMessage = async (to, text) => {
+const ENVIO = 40;
+
+// ====================
+// NORMALIZAR TEXTO
+// ====================
+const n = t =>
+  t
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+// ====================
+// ENVIAR MENSAJE
+// ====================
+async function sendMessage(to, body) {
   await axios.post(
-    `https://graph.facebook.com/v19.0/${process.env.PHONE_ID}/messages`,
+    `https://graph.facebook.com/v19.0/${PHONE_ID}/messages`,
     {
       messaging_product: "whatsapp",
       to,
-      text: { body: text }
+      text: { body }
     },
     {
       headers: {
-        Authorization: `Bearer ${process.env.TOKEN}`,
+        Authorization: `Bearer ${TOKEN}`,
         "Content-Type": "application/json"
       }
     }
   );
-};
+}
 
-app.post("/webhook", async (req, res) => {
-  const msg = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-  if (!msg) return res.sendStatus(200);
+// ====================
+// VERIFY (META OBLIGATORIO)
+// ====================
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
 
-  const from = msg.from;
-  const text = msg.text?.body?.toLowerCase();
-
-  if (!users[from]) {
-    users[from] = {
-      step: "menu",
-      order: [],
-      current: { extras: [] },
-      delivery: null
-    };
-
-    await sendMessage(from,
-      "🍕 Bienvenido a Pizzería Villa\n\n¿Que deseas hacer?\n🛒 Realizar pedido"
-    );
-    return res.sendStatus(200);
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    return res.status(200).send(challenge);
   }
-
-  const user = users[from];
-
-  /* ===== MENÚ ===== */
-  if (user.step === "menu" && text.includes("pedido")) {
-    user.step = "pizza";
-    await sendMessage(from,
-      "🍕 Elige tu pizza:\n- Pepperoni\n- Hawaiana\n- Mexicana"
-    );
-  }
-
-  /* ===== PIZZA ===== */
-  else if (user.step === "pizza" && pizzas[text]) {
-    user.current.name = text;
-    user.step = "size";
-    await sendMessage(from, "📏 Tamaño:\n- Grande\n- Extra grande");
-  }
-
-  /* ===== TAMAÑO ===== */
-  else if (user.step === "size") {
-    if (text.includes("extra")) {
-      user.current.size = "EG";
-    } else {
-      user.current.size = "G";
-    }
-    user.step = "ask_extra";
-    await sendMessage(from, "➕ ¿Agregar extra?\nSí / No");
-  }
-
-  /* ===== ¿EXTRA? ===== */
-  else if (user.step === "ask_extra") {
-    if (text === "si") {
-      user.step = "choose_extra";
-      await sendMessage(from,
-        "Elige un extra:\n" + extras.map(e => `- ${e}`).join("\n")
-      );
-    } else {
-      user.order.push(user.current);
-      user.current = { extras: [] };
-      user.step = "another_pizza";
-      await sendMessage(from, "🍕 ¿Deseas otra pizza?\nSí / No");
-    }
-  }
-
-  /* ===== ELEGIR EXTRA ===== */
-  else if (user.step === "choose_extra") {
-    user.current.extras.push(text);
-    user.step = "more_extra";
-    await sendMessage(from, "➕ ¿Agregar otro extra?\nSí / No");
-  }
-
-  /* ===== ¿MÁS EXTRAS? ===== */
-  else if (user.step === "more_extra") {
-    if (text === "si") {
-      user.step = "choose_extra";
-      await sendMessage(from,
-        "Elige otro extra:\n" + extras.map(e => `- ${e}`).join("\n")
-      );
-    } else {
-      user.order.push(user.current);
-      user.current = { extras: [] };
-      user.step = "another_pizza";
-      await sendMessage(from, "🍕 ¿Deseas otra pizza?\nSí / No");
-    }
-  }
-
-  /* ===== ¿OTRA PIZZA? ===== */
-  else if (user.step === "another_pizza") {
-    if (text === "si") {
-      user.step = "pizza";
-      await sendMessage(from,
-        "🍕 Elige tu pizza:\n- Pepperoni\n- Hawaiana\n- Mexicana"
-      );
-    } else {
-      user.step = "delivery";
-      await sendMessage(from,
-        "🚚 ¿Cómo deseas tu pedido?\n- A domicilio\n- Pasar a recoger"
-      );
-    }
-  }
-
-  /* ===== ENTREGA ===== */
-  else if (user.step === "delivery") {
-    if (text.includes("domicilio")) {
-      user.delivery = "domicilio";
-      user.step = "address";
-      await sendMessage(from, "📍 Escribe tu dirección completa:");
-    } else {
-      user.delivery = "recoger";
-      showSummary(from, user);
-      delete users[from];
-    }
-  }
-
-  /* ===== DIRECCIÓN ===== */
-  else if (user.step === "address") {
-    user.address = text;
-    showSummary(from, user);
-    delete users[from];
-  }
-
-  res.sendStatus(200);
+  res.sendStatus(403);
 });
 
-/* ===== RESUMEN ===== */
-const showSummary = async (to, user) => {
+// ====================
+// WEBHOOK
+// ====================
+app.post("/webhook", async (req, res) => {
+  try {
+    const msg = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    if (!msg) return res.sendStatus(200);
+
+    const from = msg.from;
+    const text = msg.text?.body ? n(msg.text.body) : "";
+
+    if (!sessions[from]) {
+      sessions[from] = {
+        step: "menu",
+        pizzas: [],
+        current: { extras: [] },
+        delivery: null,
+        address: ""
+      };
+
+      await sendMessage(
+        from,
+        "🍕 Bienvenido a Pizzería Villa\n\n🛒 Escribe: *realizar pedido*"
+      );
+      return res.sendStatus(200);
+    }
+
+    const s = sessions[from];
+
+    // ===== MENU =====
+    if (s.step === "menu" && text.includes("pedido")) {
+      s.step = "pizza";
+      await sendMessage(
+        from,
+        "🍕 Elige tu pizza:\n- Pepperoni\n- Hawaiana\n- Mexicana"
+      );
+    }
+
+    // ===== PIZZA =====
+    else if (s.step === "pizza" && PIZZAS[text]) {
+      s.current.name = text;
+      s.step = "size";
+      await sendMessage(from, "📏 Tamaño:\n- Grande\n- Extra grande");
+    }
+
+    // ===== TAMAÑO =====
+    else if (s.step === "size") {
+      s.current.size = text.includes("extra") ? "eg" : "g";
+      s.step = "ask_extra";
+      await sendMessage(from, "➕ ¿Agregar extra?\nSí / No");
+    }
+
+    // ===== ¿AGREGAR EXTRA? =====
+    else if (s.step === "ask_extra") {
+      if (text === "si") {
+        s.step = "choose_extra";
+        await sendMessage(
+          from,
+          "Elige un extra:\n- Queso\n- Piña\n- Jalapeño\n- Champiñones"
+        );
+      } else {
+        s.pizzas.push(s.current);
+        s.current = { extras: [] };
+        s.step = "another_pizza";
+        await sendMessage(from, "🍕 ¿Agregar otra pizza?\nSí / No");
+      }
+    }
+
+    // ===== ELEGIR EXTRA =====
+    else if (s.step === "choose_extra" && EXTRAS[text]) {
+      s.current.extras.push(text);
+      s.step = "more_extra";
+      await sendMessage(from, "➕ ¿Agregar otro extra?\nSí / No");
+    }
+
+    // ===== ¿OTRO EXTRA? =====
+    else if (s.step === "more_extra") {
+      if (text === "si") {
+        s.step = "choose_extra";
+        await sendMessage(
+          from,
+          "Elige otro extra:\n- Queso\n- Piña\n- Jalapeño\n- Champiñones"
+        );
+      } else {
+        s.pizzas.push(s.current);
+        s.current = { extras: [] };
+        s.step = "another_pizza";
+        await sendMessage(from, "🍕 ¿Agregar otra pizza?\nSí / No");
+      }
+    }
+
+    // ===== ¿OTRA PIZZA? =====
+    else if (s.step === "another_pizza") {
+      if (text === "si") {
+        s.step = "pizza";
+        await sendMessage(
+          from,
+          "🍕 Elige tu pizza:\n- Pepperoni\n- Hawaiana\n- Mexicana"
+        );
+      } else {
+        s.step = "delivery";
+        await sendMessage(
+          from,
+          "🚚 ¿Cómo deseas tu pedido?\n- A domicilio\n- Pasar a recoger"
+        );
+      }
+    }
+
+    // ===== ENTREGA =====
+    else if (s.step === "delivery") {
+      if (text.includes("domicilio")) {
+        s.delivery = "domicilio";
+        s.step = "address";
+        await sendMessage(from, "📍 Escribe tu dirección:");
+      } else {
+        s.delivery = "recoger";
+        await summary(from, s);
+        delete sessions[from];
+      }
+    }
+
+    // ===== DIRECCIÓN =====
+    else if (s.step === "address") {
+      s.address = msg.text.body;
+      await summary(from, s);
+      delete sessions[from];
+    }
+
+    res.sendStatus(200);
+  } catch (e) {
+    console.error(e);
+    res.sendStatus(500);
+  }
+});
+
+// ====================
+// RESUMEN
+// ====================
+async function summary(to, s) {
   let total = 0;
-  let msg = "🧾 PEDIDO\n\n";
+  let text = "🧾 *PEDIDO FINAL*\n\n";
 
-  user.order.forEach((p, i) => {
-    const price = pizzas[p.name][p.size];
-    total += price + p.extras.length * 15;
+  s.pizzas.forEach((p, i) => {
+    const base = PIZZAS[p.name][p.size];
+    const extraCost = p.extras.length * 15;
+    total += base + extraCost;
 
-    msg += `🍕 ${i + 1}. ${p.name} ${p.size === "EG" ? "extragrande" : "grande"}\n`;
-    if (p.extras.length) msg += `   ➕ Extras: ${p.extras.join(", ")}\n`;
+    text += `🍕 ${i + 1}. ${p.name} ${p.size === "eg" ? "extragrande" : "grande"}\n`;
+    if (p.extras.length) {
+      text += `   ➕ Extras: ${p.extras.join(", ")}\n`;
+    }
   });
 
-  if (user.delivery === "domicilio") total += 40;
+  if (s.delivery === "domicilio") {
+    total += ENVIO;
+    text += `\n🚚 Envío: $40\n📍 ${s.address}`;
+  } else {
+    text += "\n🏪 Pasa a recoger";
+  }
 
-  msg += `\n🚚 Entrega: ${user.delivery}`;
-  if (user.address) msg += `\n📍 ${user.address}`;
-  msg += `\n\n💰 TOTAL: $${total}`;
+  text += `\n\n💰 TOTAL: $${total} MXN`;
 
-  await sendMessage(to, msg);
-};
+  await sendMessage(to, text);
+}
 
-app.listen(process.env.PORT, () =>
-  console.log("🤖 Bot activo")
+// ====================
+// START
+// ====================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () =>
+  console.log("🤖 Bot activo en puerto", PORT)
 );
