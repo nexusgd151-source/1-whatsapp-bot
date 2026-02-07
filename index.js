@@ -12,7 +12,7 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // ====================
-// SESIONES (en memoria)
+// SESIONES
 // ====================
 const sessions = {};
 
@@ -27,7 +27,7 @@ const normalize = text =>
     .trim();
 
 // ====================
-// PRECIOS (IDS LIMPIOS)
+// PRECIOS
 // ====================
 const PRICES = {
   pepperoni: { grande: 130, extragrande: 180 },
@@ -71,10 +71,13 @@ app.post("/webhook", async (req, res) => {
     let input = null;
 
     if (msg.type === "text") input = msg.text.body;
+
     if (msg.type === "interactive") {
       input =
         msg.interactive.button_reply?.id ||
-        msg.interactive.list_reply?.id;
+        msg.interactive.button_reply?.title ||
+        msg.interactive.list_reply?.id ||
+        msg.interactive.list_reply?.title;
     }
 
     if (typeof input === "string") {
@@ -82,14 +85,13 @@ app.post("/webhook", async (req, res) => {
     }
 
     if (!sessions[from]) {
-      sessions[from] = {
-        step: "menu",
-        pizzas: []
-      };
+      sessions[from] = { step: "menu", pizzas: [] };
     }
 
     const s = sessions[from];
     let reply = null;
+
+    console.log("📥 DEBUG:", { step: s.step, input });
 
     switch (s.step) {
 
@@ -133,14 +135,13 @@ app.post("/webhook", async (req, res) => {
             }
           ]);
         } else {
-          reply = textMsg("👋 Pedido cancelado. ¡Vuelve pronto!");
-          delete sessions[from];
+          reply = textMsg("❌ Opción no válida, usa los botones.");
         }
         break;
 
       case "pizza_type":
         if (!PRICES[input]) {
-          reply = textMsg("❌ Pizza inválida, intenta otra.");
+          reply = textMsg("❌ Pizza inválida, elige una opción.");
           break;
         }
         s.currentPizza.type = input;
@@ -256,6 +257,11 @@ app.post("/webhook", async (req, res) => {
         s.phone = input;
         s.step = "summary";
         break;
+
+      default:
+        reply = textMsg("🤖 Me perdí un poco 😅 Usa los botones.");
+        s.step = "menu";
+        break;
     }
 
     if (s.step === "summary") {
@@ -288,7 +294,7 @@ app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
 
   } catch (err) {
-    console.error(err);
+    console.error("❌ ERROR:", err);
     res.sendStatus(500);
   }
 });
@@ -309,10 +315,7 @@ const buttons = (text, options) => ({
     action: {
       buttons: options.map(o => ({
         type: "reply",
-        reply: {
-          id: o.id,
-          title: o.title
-        }
+        reply: { id: o.id, title: o.title }
       }))
     }
   }
@@ -323,10 +326,7 @@ const list = (text, sections) => ({
   interactive: {
     type: "list",
     body: { text },
-    action: {
-      button: "Seleccionar",
-      sections
-    }
+    action: { button: "Seleccionar", sections }
   }
 });
 
@@ -337,11 +337,7 @@ async function sendMessage(to, payload) {
       Authorization: `Bearer ${WHATSAPP_TOKEN}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      ...payload
-    })
+    body: JSON.stringify({ messaging_product: "whatsapp", to, ...payload })
   });
 }
 
