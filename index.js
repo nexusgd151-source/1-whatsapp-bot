@@ -28,14 +28,12 @@ const PRICES = {
 };
 
 // ====================
-// RUTA TEST
+// TEST
 // ====================
-app.get("/", (req, res) => {
-  res.send("Bot activo 🚀");
-});
+app.get("/", (_, res) => res.send("Bot activo 🚀"));
 
 // ====================
-// WEBHOOK VERIFY
+// VERIFY WEBHOOK
 // ====================
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -45,16 +43,13 @@ app.get("/webhook", (req, res) => {
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     return res.status(200).send(challenge);
   }
-  return res.sendStatus(403);
+  res.sendStatus(403);
 });
 
 // ====================
 // WEBHOOK MENSAJES
 // ====================
 app.post("/webhook", async (req, res) => {
-  console.log("🔥 WEBHOOK DISPARADO");
-  console.log(JSON.stringify(req.body, null, 2));
-
   try {
     const value = req.body.entry?.[0]?.changes?.[0]?.value;
     if (!value?.messages) return res.sendStatus(200);
@@ -63,12 +58,14 @@ app.post("/webhook", async (req, res) => {
     const from = message.from;
     const type = message.type;
 
-    let text = null;
-    let button = null;
+    let input = null;
 
-    if (type === "text") text = message.text.body;
-    if (type === "interactive" && message.interactive?.button_reply) {
-      button = message.interactive.button_reply.title;
+    if (type === "text") input = message.text.body;
+    if (type === "interactive") {
+      if (message.interactive.button_reply)
+        input = message.interactive.button_reply.title;
+      if (message.interactive.list_reply)
+        input = message.interactive.list_reply.title;
     }
 
     if (!sessions[from]) {
@@ -82,127 +79,133 @@ app.post("/webhook", async (req, res) => {
     const session = sessions[from];
     let reply = null;
 
+    // ====================
+    // FLUJO
+    // ====================
     switch (session.step) {
       case "menu":
         reply = buttons(
-          "🍕 Bienvenido a *Pizzería Villa*\n¿Qué deseas hacer?",
-          ["📖 Menú", "🛒 Realizar pedido", "❌ Cancelar"]
+          "🍕 Bienvenido a Pizzería Villa\n¿Qué deseas?",
+          ["📖 Menú", "🛒 Pedido", "❌ Cancelar"]
         );
         session.step = "menu_option";
         break;
 
       case "menu_option":
-        if (!button) {
-          reply = textMsg("❌ Usa los botones.");
-          break;
-        }
-        if (button.includes("pedido")) {
-          session.step = "pizza_type";
+        if (input === "🛒 Pedido") {
           session.currentPizza = { extras: [] };
-          reply = buttons(
-            "🍕 ¿Qué pizza deseas?",
-            ["Pepperoni", "Carnes frías", "Hawaiana", "Mexicana"]
-          );
+          session.step = "pizza_type";
+          reply = list("🍕 Elige tu pizza", [
+            {
+              title: "Pizzas",
+              rows: [
+                { id: "Pepperoni", title: "Pepperoni" },
+                { id: "Hawaiana", title: "Hawaiana" },
+                { id: "Mexicana", title: "Mexicana" },
+                { id: "Carnes", title: "Carnes frías" }
+              ]
+            }
+          ]);
         } else {
-          reply = textMsg("👋 Gracias por visitarnos.");
+          reply = textMsg("👋 Gracias por visitarnos");
           delete sessions[from];
         }
         break;
 
       case "pizza_type":
-        session.currentPizza.type = button;
+        session.currentPizza.type = input;
         session.step = "size";
-        reply = buttons(
-          "📏 Elige tamaño:",
-          ["Grande (8 rebanadas)", "Extra grande (10 rebanadas)"]
-        );
+        reply = buttons("📏 Tamaño", ["Grande", "Extra grande"]);
         break;
 
       case "size":
-        session.currentPizza.size = button;
+        session.currentPizza.size = input;
         session.step = "crust";
-        reply = buttons(
-          "🧀 ¿Agregar orilla de queso? (+$40)",
-          ["Sí", "No"]
-        );
+        reply = buttons("🧀 ¿Orilla de queso?", ["Sí", "No"]);
         break;
 
       case "crust":
-        session.currentPizza.crust = button === "Sí";
+        session.currentPizza.crust = input === "Sí";
         session.step = "extras";
-        reply = buttons(
-          "➕ Extras ($15 c/u)",
-          ["Pepperoni", "Jamón", "Jalapeño", "Piña", "Chorizo", "Queso", "Tocino", "Ninguno"]
-        );
+        reply = list("➕ Extras ($15)", [
+          {
+            title: "Extras",
+            rows: [
+              { id: "Pepperoni", title: "Pepperoni" },
+              { id: "Jamón", title: "Jamón" },
+              { id: "Jalapeño", title: "Jalapeño" },
+              { id: "Piña", title: "Piña" },
+              { id: "Queso", title: "Queso" },
+              { id: "Tocino", title: "Tocino" },
+              { id: "Ninguno", title: "Ninguno" }
+            ]
+          }
+        ]);
         break;
 
       case "extras":
-        if (button !== "Ninguno") {
-          session.currentPizza.extras.push(button);
-          reply = buttons("¿Agregar otro extra?", ["Sí", "No"]);
+        if (input !== "Ninguno") {
+          session.currentPizza.extras.push(input);
+          reply = buttons("¿Otro extra?", ["Sí", "No"]);
           session.step = "more_extras";
         } else {
           session.pizzas.push(session.currentPizza);
-          session.step = "another_pizza";
-          reply = buttons("¿Agregar otra pizza?", ["Sí", "No"]);
+          session.step = "address";
+          reply = textMsg("📍 Dirección completa:");
         }
         break;
 
       case "more_extras":
-        if (button === "Sí") {
+        if (input === "Sí") {
           session.step = "extras";
-          reply = buttons(
-            "➕ Extras ($15 c/u)",
-            ["Pepperoni", "Jamón", "Jalapeño", "Piña", "Chorizo", "Queso", "Tocino", "Ninguno"]
-          );
+          reply = list("➕ Extras ($15)", [
+            {
+              title: "Extras",
+              rows: [
+                { id: "Pepperoni", title: "Pepperoni" },
+                { id: "Jamón", title: "Jamón" },
+                { id: "Jalapeño", title: "Jalapeño" },
+                { id: "Piña", title: "Piña" },
+                { id: "Queso", title: "Queso" },
+                { id: "Tocino", title: "Tocino" },
+                { id: "Ninguno", title: "Ninguno" }
+              ]
+            }
+          ]);
         } else {
           session.pizzas.push(session.currentPizza);
-          session.step = "another_pizza";
-          reply = buttons("¿Agregar otra pizza?", ["Sí", "No"]);
-        }
-        break;
-
-      case "another_pizza":
-        if (button === "Sí") {
-          session.currentPizza = { extras: [] };
-          session.step = "pizza_type";
-          reply = buttons(
-            "🍕 ¿Qué pizza deseas?",
-            ["Pepperoni", "Carnes frías", "Hawaiana", "Mexicana"]
-          );
-        } else {
           session.step = "address";
-          reply = textMsg("📍 Escribe tu dirección completa:");
+          reply = textMsg("📍 Dirección completa:");
         }
         break;
 
       case "address":
-        session.address = text;
+        session.address = input;
         session.step = "phone";
-        reply = textMsg("📞 Escribe tu número de teléfono:");
+        reply = textMsg("📞 Teléfono:");
         break;
 
       case "phone":
-        session.phone = text;
+        session.phone = input;
 
-        let total = 0;
-        let summary = "🆕 *NUEVO PEDIDO 🍕*\n\n";
+        let total = PRICES.envio;
+        let summary = "🆕 *PEDIDO*\n\n";
 
         session.pizzas.forEach((p, i) => {
-          const sizePrice = p.size.includes("Extra") ? PRICES.extragrande : PRICES.grande;
+          const sizePrice =
+            p.size === "Extra grande" ? PRICES.extragrande : PRICES.grande;
           total += sizePrice;
           if (p.crust) total += PRICES.orilla;
           total += p.extras.length * PRICES.extra;
 
-          summary += `🍕 *Pizza ${i + 1}*\n• ${p.type}\n• ${p.size}\n`;
-          if (p.crust) summary += `• Orilla (+$40)\n`;
-          if (p.extras.length) summary += `• Extras: ${p.extras.join(", ")}\n`;
+          summary += `🍕 Pizza ${i + 1}\n• ${p.type}\n• ${p.size}\n`;
+          if (p.crust) summary += "• Orilla\n";
+          if (p.extras.length)
+            summary += `• Extras: ${p.extras.join(", ")}\n`;
           summary += "\n";
         });
 
-        total += PRICES.envio;
-        summary += `🚚 Envío: $40\n💰 *TOTAL:* $${total} MXN\n\n📍 ${session.address}\n📞 ${session.phone}`;
-
+        summary += `🚚 Envío: $40\n💰 TOTAL: $${total}\n\n📍 ${session.address}\n📞 ${session.phone}`;
         reply = textMsg(summary);
         delete sessions[from];
         break;
@@ -212,7 +215,7 @@ app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
 
   } catch (err) {
-    console.error("❌ Error:", err);
+    console.error(err);
     res.sendStatus(500);
   }
 });
@@ -240,6 +243,20 @@ function buttons(text, options) {
   };
 }
 
+function list(text, sections) {
+  return {
+    type: "interactive",
+    interactive: {
+      type: "list",
+      body: { text },
+      action: {
+        button: "Seleccionar",
+        sections
+      }
+    }
+  };
+}
+
 async function sendMessage(to, payload) {
   await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
     method: "POST",
@@ -256,9 +273,7 @@ async function sendMessage(to, payload) {
 }
 
 // ====================
-// SERVER
-// ====================
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, "0.0.0.0", () => {
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
   console.log(`🚀 Bot corriendo en puerto ${PORT}`);
 });
