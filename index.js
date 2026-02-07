@@ -17,14 +17,14 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const sessions = {};
 
 // ====================
-// PRECIOS REALES
+// PRECIOS
 // ====================
 const PRICES = {
-  Pepperoni: { grande: 130, extragrande: 180 },
-  "Carnes frías": { grande: 170, extragrande: 220 },
-  Hawaiana: { grande: 150, extragrande: 210 },
-  Mexicana: { grande: 200, extragrande: 250 },
-  "Orilla de queso": { grande: 170, extragrande: 240 },
+  pepperoni: { grande: 130, extragrande: 180 },
+  "carnes frías": { grande: 170, extragrande: 220 },
+  hawaiana: { grande: 150, extragrande: 210 },
+  mexicana: { grande: 200, extragrande: 250 },
+  "orilla de queso": { grande: 170, extragrande: 240 },
   extra: 15,
   envio: 40
 };
@@ -66,11 +66,12 @@ app.post("/webhook", async (req, res) => {
         msg.interactive.list_reply?.id;
     }
 
+    if (typeof input === "string") {
+      input = input.trim().toLowerCase();
+    }
+
     if (!sessions[from]) {
-      sessions[from] = {
-        step: "menu",
-        pizzas: []
-      };
+      sessions[from] = { step: "menu", pizzas: [] };
     }
 
     const s = sessions[from];
@@ -86,7 +87,7 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "menu_option":
-        if (input === "📖 Ver menú") {
+        if (input === "📖 ver menú") {
           reply = textMsg(
             "📖 *MENÚ*\n\n" +
             "🍕 Pepperoni G $130 | EG $180\n" +
@@ -96,19 +97,20 @@ app.post("/webhook", async (req, res) => {
             "🧀 Orilla de queso G $170 | EG $240\n" +
             "➕ Extra $15\n🚚 Envío $40"
           );
-          s.step = "menu";
-        } else if (input === "🛒 Realizar pedido") {
+          s.step = "menu_option";
+        } 
+        else if (input === "🛒 realizar pedido") {
           s.currentPizza = { extras: [] };
           s.step = "pizza_type";
           reply = list("🍕 Elige tu pizza", [
             {
               title: "Pizzas",
               rows: [
-                { id: "Pepperoni", title: "Pepperoni" },
-                { id: "Carnes frías", title: "Carnes frías" },
-                { id: "Hawaiana", title: "Hawaiana" },
-                { id: "Mexicana", title: "Mexicana" },
-                { id: "Orilla de queso", title: "Orilla de queso" }
+                { id: "pepperoni", title: "Pepperoni" },
+                { id: "carnes frías", title: "Carnes frías" },
+                { id: "hawaiana", title: "Hawaiana" },
+                { id: "mexicana", title: "Mexicana" },
+                { id: "orilla de queso", title: "Orilla de queso" }
               ]
             }
           ]);
@@ -125,7 +127,7 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "size":
-        s.currentPizza.size = input === "Grande" ? "grande" : "extragrande";
+        s.currentPizza.size = input === "grande" ? "grande" : "extragrande";
         s.step = "extras";
         reply = buttons("➕ Extras ($15)", [
           "Pepperoni", "Jamón", "Jalapeño", "Piña",
@@ -134,10 +136,10 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "extras":
-        if (input !== "Ninguno") {
+        if (input !== "ninguno") {
           s.currentPizza.extras.push(input);
-          reply = buttons("¿Agregar otro extra?", ["Sí", "No"]);
           s.step = "more_extras";
+          reply = buttons("¿Agregar otro extra?", ["Sí", "No"]);
         } else {
           s.pizzas.push(s.currentPizza);
           s.step = "another_pizza";
@@ -146,7 +148,7 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "more_extras":
-        if (input === "Sí") {
+        if (input === "sí") {
           s.step = "extras";
           reply = buttons("➕ Extras ($15)", [
             "Pepperoni", "Jamón", "Jalapeño", "Piña",
@@ -160,18 +162,18 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "another_pizza":
-        if (input === "Sí") {
+        if (input === "sí") {
           s.currentPizza = { extras: [] };
           s.step = "pizza_type";
           reply = list("🍕 Elige tu pizza", [
             {
               title: "Pizzas",
               rows: [
-                { id: "Pepperoni", title: "Pepperoni" },
-                { id: "Carnes frías", title: "Carnes frías" },
-                { id: "Hawaiana", title: "Hawaiana" },
-                { id: "Mexicana", title: "Mexicana" },
-                { id: "Orilla de queso", title: "Orilla de queso" }
+                { id: "pepperoni", title: "Pepperoni" },
+                { id: "carnes frías", title: "Carnes frías" },
+                { id: "hawaiana", title: "Hawaiana" },
+                { id: "mexicana", title: "Mexicana" },
+                { id: "orilla de queso", title: "Orilla de queso" }
               ]
             }
           ]);
@@ -208,7 +210,7 @@ app.post("/webhook", async (req, res) => {
 
     if (s.step === "summary") {
       let total = 0;
-      let text = "🆕 *PEDIDO 🍕*\n\n";
+      let text = "🧾 *PEDIDO FINAL*\n\n";
 
       s.pizzas.forEach((p, i) => {
         const base = PRICES[p.type][p.size];
