@@ -140,9 +140,25 @@ app.post("/webhook", async (req, res) => {
           s.currentPizza = { extras: [] };
           s.step = "pizza_type";
           reply = pizzaList();
-        } else if (input === "no") {
-          s.step = "summary";
-        }
+          } else if (input === "no") {
+  s.step = "summary";
+
+  let total = 0;
+  let text = "🧾 PEDIDO\n\n";
+
+  s.pizzas.forEach((p, i) => {
+    total += PRICES[p.type][p.size] + p.extras.length * PRICES.extra;
+    text += `🍕 ${i + 1}. ${p.type} ${p.size}\n`;
+    if (p.extras.length) text += `   Extras: ${p.extras.join(", ")}\n`;
+    text += "\n";
+  });
+
+  text += `💰 TOTAL: $${total}`;
+  reply = textMsg(text);
+
+  delete sessions[from];
+}
+
         break;
 
       case "summary":
