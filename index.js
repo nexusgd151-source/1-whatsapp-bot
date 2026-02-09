@@ -26,7 +26,10 @@ const PRICES = {
   envio: 40
 };
 
-app.get("/", (_, res) => res.send("Bot activo 🚀"));
+const PIZZAS_VALIDAS = Object.keys(PRICES).filter(p => !["extra", "envio"].includes(p));
+const EXTRAS_VALIDOS = ["pepperoni","jamon","jalapeno","pina","chorizo","queso"];
+
+app.get("/", (_, res) => res.send("🤖 Bot activo"));
 
 app.post("/webhook", async (req, res) => {
   try {
@@ -44,11 +47,19 @@ app.post("/webhook", async (req, res) => {
     if (input) input = normalize(input);
 
     if (!sessions[from]) {
-      sessions[from] = { step: "menu", pizzas: [] };
+      sessions[from] = { step: "menu", pizzas: [], lastInput: null };
     }
 
     const s = sessions[from];
     let reply;
+
+    // 🔒 Anti-spam / doble click
+    if (input && s.lastInput === input) return res.sendStatus(200);
+    s.lastInput = input;
+
+    // 🔒 No aceptar texto cuando no toca
+    const stepsTexto = ["ask_address","ask_phone","ask_pickup_name"];
+    if (!input && !stepsTexto.includes(s.step)) return res.sendStatus(200);
 
     switch (s.step) {
 
@@ -63,10 +74,11 @@ app.post("/webhook", async (req, res) => {
       case "menu_option":
         if (input === "menu") {
           reply = textMsg(
-            "📖 MENÚ\n\nPepperoni G $130 | EG $180\nCarnes frías G $170 | EG $220\nHawaiana G $150 | EG $210\nMexicana G $200 | EG $250\nOrilla de queso G $170 | EG $240\nExtra $15\nEnvío $40"
+            "📖 MENÚ\n\nPepperoni G $130 | EG $180\nCarnes frías G $170 | EG $220\nHawaiana G $150 | EG $210\nMexicana G $200 | EG $250\nOrilla queso G $170 | EG $240\nExtra $15\nEnvío $40"
           );
           s.step = "menu";
-        } else {
+        }
+        if (input === "pedido") {
           s.currentPizza = { extras: [] };
           s.step = "pizza_type";
           reply = pizzaList();
@@ -74,7 +86,8 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "pizza_type":
-        s.currentPizza.type = input;
+        if (!PIZZAS_VALIDAS.includes(input)) break;
+        s.currentPizza = { type: input, extras: [] };
         s.step = "size";
         reply = buttons("📏 Tamaño", [
           { id: "grande", title: "Grande" },
@@ -83,6 +96,7 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "size":
+        if (!["grande","extragrande"].includes(input)) break;
         s.currentPizza.size = input;
         s.step = "ask_extra";
         reply = buttons("➕ ¿Agregar extra?", [
@@ -95,7 +109,8 @@ app.post("/webhook", async (req, res) => {
         if (input === "extra_si") {
           s.step = "choose_extra";
           reply = extraList();
-        } else {
+        }
+        if (input === "extra_no") {
           s.pizzas.push(s.currentPizza);
           s.step = "another_pizza";
           reply = anotherPizza();
@@ -103,6 +118,7 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "choose_extra":
+        if (!EXTRAS_VALIDOS.includes(input)) break;
         s.currentPizza.extras.push(input);
         s.step = "more_extras";
         reply = buttons("➕ ¿Agregar otro extra?", [
@@ -115,7 +131,8 @@ app.post("/webhook", async (req, res) => {
         if (input === "extra_si") {
           s.step = "choose_extra";
           reply = extraList();
-        } else {
+        }
+        if (input === "extra_no") {
           s.pizzas.push(s.currentPizza);
           s.step = "another_pizza";
           reply = anotherPizza();
@@ -127,7 +144,8 @@ app.post("/webhook", async (req, res) => {
           s.currentPizza = { extras: [] };
           s.step = "pizza_type";
           reply = pizzaList();
-        } else {
+        }
+        if (input === "no") {
           s.step = "delivery_method";
           reply = buttons("🚚 ¿Cómo deseas tu pedido?", [
             { id: "domicilio", title: "A domicilio" },
@@ -141,28 +159,32 @@ app.post("/webhook", async (req, res) => {
           s.delivery = "Domicilio";
           s.step = "ask_address";
           reply = textMsg("📍 Escribe tu dirección completa:");
-        } else {
+        }
+        if (input === "recoger") {
           s.delivery = "Recoger";
           s.step = "ask_pickup_name";
-          reply = textMsg("🙋 ¿Nombre de quien recogerá la pizza?");
+          reply = textMsg("🙋 Nombre de quien recogerá la pizza:");
         }
         break;
 
       case "ask_address":
+        if (!rawText) break;
         s.address = rawText;
         s.step = "ask_phone";
         reply = textMsg("📞 Escribe tu número de teléfono:");
         break;
 
       case "ask_phone":
+        if (!rawText) break;
         s.phone = rawText;
-        reply = buildSummary(s, true);
+        reply = buildSummary(s);
         delete sessions[from];
         break;
 
       case "ask_pickup_name":
+        if (!rawText) break;
         s.pickupName = rawText;
-        reply = buildSummary(s, false);
+        reply = buildSummary(s);
         delete sessions[from];
         break;
     }
@@ -176,9 +198,9 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-/* ===== helpers ===== */
+/* ===== HELPERS ===== */
 
-const buildSummary = (s, delivery) => {
+const buildSummary = s => {
   let total = 0;
   let text = "🧾 PEDIDO CONFIRMADO\n\n";
 
@@ -189,9 +211,9 @@ const buildSummary = (s, delivery) => {
     text += "\n";
   });
 
-  if (delivery) {
+  if (s.delivery === "Domicilio") {
     total += PRICES.envio;
-    text += `🚚 Envío: $40\n📍 ${s.address}\n📞 ${s.phone}\n\n`;
+    text += `🚚 Envío $40\n📍 ${s.address}\n📞 ${s.phone}\n\n`;
   } else {
     text += `🏪 Recoge: ${s.pickupName}\n\n`;
   }
@@ -202,15 +224,12 @@ const buildSummary = (s, delivery) => {
 
 const pizzaList = () => list("🍕 Elige tu pizza", [{
   title: "Pizzas",
-  rows: Object.keys(PRICES)
-    .filter(p => !["extra", "envio"].includes(p))
-    .map(p => ({ id: p, title: p.replace("_", " ") }))
+  rows: PIZZAS_VALIDAS.map(p => ({ id: p, title: p.replace("_"," ") }))
 }]);
 
 const extraList = () => list("➕ Elige un extra ($15)", [{
   title: "Extras",
-  rows: ["pepperoni", "jamon", "jalapeno", "pina", "chorizo", "queso"]
-    .map(e => ({ id: e, title: e }))
+  rows: EXTRAS_VALIDOS.map(e => ({ id: e, title: e }))
 }]);
 
 const anotherPizza = () => buttons("🍕 ¿Agregar otra pizza?", [
