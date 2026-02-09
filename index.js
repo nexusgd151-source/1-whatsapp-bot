@@ -6,25 +6,21 @@ app.use(express.json());
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const express = require("express");
+const fetch = require("node-fetch");
+
+const app = express();
+app.use(express.json());
+
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
-/* ======================
-   SESIONES
-====================== */
-const sessions = {};
+// =======================
+// CONFIG
+// =======================
+const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 minutos
 
-/* ======================
-   UTILS
-====================== */
-const normalize = txt =>
-  txt?.toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-
-/* ======================
-   PRECIOS
-====================== */
 const PRICES = {
   pepperoni: { grande: 130, extragrande: 180 },
   carnes_frias: { grande: 170, extragrande: 220 },
@@ -35,21 +31,33 @@ const PRICES = {
   envio: 40
 };
 
-/* ======================
-   PASOS QUE ACEPTAN TEXTO
-====================== */
-const TEXT_ALLOWED = ["ask_address", "ask_phone", "ask_pickup_name"];
+const sessions = {};
 
-/* ======================
-   MENSAJE ERROR + REENVÍO
-====================== */
-const invalid = (step) => textMsg(
-  `⚠️ Opción no válida.\n👉 Estás en el paso: *${step}*\nUsa los botones mostrados.`
-);
+// =======================
+// UTILS
+// =======================
+const normalize = t =>
+  t?.toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
 
-/* ======================
-   WEBHOOK
-====================== */
+const now = () => Date.now();
+
+const resetSession = (from) => {
+  sessions[from] = {
+    step: "menu",
+    pizzas: [],
+    lastAction: now(),
+    expected: []
+  };
+};
+
+const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
+
+// =======================
+// WEBHOOK
+// =======================
 app.post("/webhook", async (req, res) => {
   try {
     const value = req.body.entry?.[0]?.changes?.[0]?.value;
@@ -58,124 +66,115 @@ app.post("/webhook", async (req, res) => {
     const msg = value.messages[0];
     const from = msg.from;
 
-    const rawText = msg.text?.body;
+    const rawText = msg.type === "text" ? msg.text.body : null;
     let input =
       msg.interactive?.button_reply?.id ||
       msg.interactive?.list_reply?.id;
 
-    if (input) input = normalize(input);
+    input = normalize(input);
 
-    /* ===== Cancelar SIEMPRE ===== */
-    if (input === "cancelar") {
-      delete sessions[from];
-      await sendMessage(from, startMenu());
+    // =======================
+    // SESSION
+    // =======================
+    if (!sessions[from] || isExpired(sessions[from])) {
+      resetSession(from);
+      await sendMessage(from, mainMenu());
       return res.sendStatus(200);
     }
 
-    if (!sessions[from]) {
-      sessions[from] = {
-        step: "menu",
-        pizzas: [],
-        currentPizza: null
-      };
+    const s = sessions[from];
+    s.lastAction = now();
+
+    // =======================
+    // CANCELAR
+    // =======================
+    if (input === "cancelar") {
+      resetSession(from);
+      await sendMessage(from, textMsg("❌ Pedido cancelado."));
+      await sendMessage(from, mainMenu());
+      return res.sendStatus(200);
     }
 
-    const s = sessions[from];
+    // =======================
+    // VALIDACIÓN
+    // =======================
+    if (s.expected.length && !s.expected.includes(input) && !rawTextAllowed(s.step)) {
+      await sendMessage(from, errorMsg(s.step));
+      await sendMessage(from, resendStep(s));
+      return res.sendStatus(200);
+    }
+
     let reply;
 
-if (rawText && !TEXT_ALLOWED.includes(s.step)) {
-
-  // Si el usuario está en menú o inicio, SIEMPRE re-mostrar botones
-  if (["menu", "menu_option"].includes(s.step)) {
-    await sendMessage(from, merge(
-      invalid("menu"),
-      startMenu()
-    ));
-    return res.sendStatus(200);
-  }
-
-  // Para cualquier otro paso
-  await sendMessage(from, merge(
-    invalid(s.step),
-    stepUI(s)
-  ));
-  return res.sendStatus(200);
-}
-
-
+    // =======================
+    // FLOW
+    // =======================
     switch (s.step) {
 
       case "menu":
+        s.expected = ["pedido", "menu"];
+        reply = mainMenu();
         s.step = "menu_option";
-        reply = startMenu();
         break;
 
       case "menu_option":
         if (input === "menu") {
-          reply = merge(
-            textMsg(
-              "📖 MENÚ\n\nPepperoni G $130 | EG $180\nCarnes frías G $170 | EG $220\nHawaiana G $150 | EG $210\nMexicana G $200 | EG $250\nOrilla de queso G $170 | EG $240\nExtra $15\nEnvío $40"
-            ),
-            startMenu()
-          );
-        } else if (input === "pedido") {
+          reply = menuText();
+          s.step = "menu";
+        } else {
           s.currentPizza = { extras: [] };
           s.step = "pizza_type";
-          reply = stepUI(s);
-        } else {
-          reply = merge(invalid(s.step), stepUI(s));
+          s.expected = Object.keys(PRICES).filter(p => !["extra","envio"].includes(p));
+          reply = pizzaList();
         }
         break;
 
       case "pizza_type":
-        if (!PRICES[input]) {
-          reply = merge(invalid(s.step), stepUI(s));
-          break;
-        }
         s.currentPizza.type = input;
         s.step = "size";
-        reply = stepUI(s);
+        s.expected = ["grande", "extragrande"];
+        reply = sizeButtons();
         break;
 
       case "size":
-        if (!["grande", "extragrande"].includes(input)) {
-          reply = merge(invalid(s.step), stepUI(s));
-          break;
-        }
         s.currentPizza.size = input;
         s.step = "ask_extra";
-        reply = stepUI(s);
+        s.expected = ["extra_si", "extra_no"];
+        reply = askExtra();
         break;
 
       case "ask_extra":
         if (input === "extra_si") {
           s.step = "choose_extra";
-          reply = stepUI(s);
-        } else if (input === "extra_no") {
+          s.expected = extrasAllowed();
+          reply = extraList();
+        } else {
           s.pizzas.push(s.currentPizza);
           s.step = "another_pizza";
-          reply = stepUI(s);
-        } else {
-          reply = merge(invalid(s.step), stepUI(s));
+          s.expected = ["si", "no"];
+          reply = anotherPizza();
         }
         break;
 
       case "choose_extra":
-        s.currentPizza.extras.push(input);
+        if (!s.currentPizza.extras.includes(input)) {
+          s.currentPizza.extras.push(input);
+        }
         s.step = "more_extras";
-        reply = stepUI(s);
+        s.expected = ["extra_si", "extra_no"];
+        reply = askMoreExtras();
         break;
 
       case "more_extras":
         if (input === "extra_si") {
           s.step = "choose_extra";
-          reply = stepUI(s);
-        } else if (input === "extra_no") {
+          s.expected = extrasAllowed();
+          reply = extraList();
+        } else {
           s.pizzas.push(s.currentPizza);
           s.step = "another_pizza";
-          reply = stepUI(s);
-        } else {
-          reply = merge(invalid(s.step), stepUI(s));
+          s.expected = ["si", "no"];
+          reply = anotherPizza();
         }
         break;
 
@@ -183,12 +182,12 @@ if (rawText && !TEXT_ALLOWED.includes(s.step)) {
         if (input === "si") {
           s.currentPizza = { extras: [] };
           s.step = "pizza_type";
-          reply = stepUI(s);
-        } else if (input === "no") {
-          s.step = "delivery_method";
-          reply = stepUI(s);
+          s.expected = Object.keys(PRICES).filter(p => !["extra","envio"].includes(p));
+          reply = pizzaList();
         } else {
-          reply = merge(invalid(s.step), stepUI(s));
+          s.step = "delivery_method";
+          s.expected = ["domicilio", "recoger"];
+          reply = deliveryButtons();
         }
         break;
 
@@ -196,20 +195,20 @@ if (rawText && !TEXT_ALLOWED.includes(s.step)) {
         if (input === "domicilio") {
           s.delivery = "Domicilio";
           s.step = "ask_address";
-          reply = stepUI(s);
-        } else if (input === "recoger") {
+          s.expected = [];
+          reply = textMsg("📍 Escribe tu dirección completa:");
+        } else {
           s.delivery = "Recoger";
           s.step = "ask_pickup_name";
-          reply = stepUI(s);
-        } else {
-          reply = merge(invalid(s.step), stepUI(s));
+          s.expected = [];
+          reply = textMsg("🙋 Nombre de quien recoge:");
         }
         break;
 
       case "ask_address":
         s.address = rawText;
         s.step = "ask_phone";
-        reply = stepUI(s);
+        reply = textMsg("📞 Escribe tu teléfono:");
         break;
 
       case "ask_phone":
@@ -234,77 +233,83 @@ if (rawText && !TEXT_ALLOWED.includes(s.step)) {
   }
 });
 
-/* ======================
-   UI POR PASO
-====================== */
-const stepUI = (s) => {
+// =======================
+// HELPERS
+// =======================
+const rawTextAllowed = step =>
+  ["ask_address", "ask_phone", "ask_pickup_name"].includes(step);
+
+const errorMsg = step =>
+  textMsg(`⚠️ Opción no válida.\n👉 Estás en el paso: *${step}*\nUsa los botones.`);
+
+const resendStep = s => {
   switch (s.step) {
+    case "menu": return mainMenu();
     case "pizza_type": return pizzaList();
     case "size": return sizeButtons();
-    case "ask_extra": return extraAsk();
+    case "ask_extra": return askExtra();
     case "choose_extra": return extraList();
-    case "more_extras": return extraMore();
+    case "more_extras": return askMoreExtras();
     case "another_pizza": return anotherPizza();
     case "delivery_method": return deliveryButtons();
-    case "ask_address": return textMsg("📍 Escribe tu dirección completa:");
-    case "ask_phone": return textMsg("📞 Escribe tu número de teléfono:");
-    case "ask_pickup_name": return textMsg("🙋 Nombre de quien recogerá:");
+    default: return mainMenu();
   }
 };
 
-/* ======================
-   HELPERS UI
-====================== */
-const startMenu = () => buttons(
-  "🍕 Bienvenido a Pizzería Villa\n¿Qué deseas hacer?",
-  [
-    { id: "pedido", title: "🛒 Realizar pedido" },
-    { id: "menu", title: "📖 Ver menú" },
-    { id: "cancelar", title: "❌ Cancelar" }
-  ]
-);
-
-const sizeButtons = () => buttons("📏 Tamaño", [
-  { id: "grande", title: "Grande" },
-  { id: "extragrande", title: "Extra grande" }
-]);
-
-const extraAsk = () => buttons("➕ ¿Agregar extra?", [
-  { id: "extra_si", title: "Sí" },
-  { id: "extra_no", title: "No" }
-]);
-
-const extraMore = () => extraAsk();
-
-const deliveryButtons = () => buttons("🚚 ¿Cómo deseas tu pedido?", [
-  { id: "domicilio", title: "A domicilio" },
-  { id: "recoger", title: "Recoger en tienda" }
+// =======================
+// UI
+// =======================
+const mainMenu = () => buttons("🍕 Bienvenido a Pizzería Villa", [
+  { id: "pedido", title: "🛒 Realizar pedido" },
+  { id: "menu", title: "📖 Ver menú" },
+  { id: "cancelar", title: "❌ Cancelar" }
 ]);
 
 const pizzaList = () => list("🍕 Elige tu pizza", [{
   title: "Pizzas",
   rows: Object.keys(PRICES)
-    .filter(p => !["extra", "envio"].includes(p))
-    .map(p => ({ id: p, title: p.replace("_", " ") }))
-}]);
+    .filter(p => !["extra","envio"].includes(p))
+    .map(p => ({ id: p, title: p.replace("_"," ") }))
+}] , true);
 
-const extraList = () => list("➕ Extras ($15)", [{
-  title: "Extras",
-  rows: ["pepperoni", "jamon", "jalapeno", "pina", "chorizo", "queso"]
-    .map(e => ({ id: e, title: e }))
-}]);
+const sizeButtons = () => buttons("📏 Tamaño", [
+  { id: "grande", title: "Grande" },
+  { id: "extragrande", title: "Extra grande" },
+  { id: "cancelar", title: "❌ Cancelar" }
+]);
+
+const askExtra = () => buttons("➕ ¿Agregar extra?", [
+  { id: "extra_si", title: "Sí" },
+  { id: "extra_no", title: "No" },
+  { id: "cancelar", title: "❌ Cancelar" }
+]);
+
+const askMoreExtras = askExtra;
 
 const anotherPizza = () => buttons("🍕 ¿Agregar otra pizza?", [
   { id: "si", title: "Sí" },
-  { id: "no", title: "No" }
+  { id: "no", title: "No" },
+  { id: "cancelar", title: "❌ Cancelar" }
 ]);
 
-/* ======================
-   MENSAJES
-====================== */
-const textMsg = body => ({ type: "text", text: { body } });
+const deliveryButtons = () => buttons("🚚 ¿Cómo deseas tu pedido?", [
+  { id: "domicilio", title: "A domicilio" },
+  { id: "recoger", title: "Recoger" },
+  { id: "cancelar", title: "❌ Cancelar" }
+]);
 
-const merge = (a, b) => [a, b];
+const extrasAllowed = () =>
+  ["pepperoni","jamon","jalapeno","pina","chorizo","queso"];
+
+const extraList = () => list("➕ Elige un extra ($15)", [{
+  title: "Extras",
+  rows: extrasAllowed().map(e => ({ id: e, title: e }))
+}], true);
+
+const menuText = () =>
+  textMsg("📖 MENÚ\nPepperoni $130\nHawaiana $150\nMexicana $200\nExtra $15\nEnvío $40");
+
+const textMsg = body => ({ type: "text", text: { body } });
 
 const buttons = (text, options) => ({
   type: "interactive",
@@ -329,48 +334,39 @@ const list = (text, sections) => ({
   }
 });
 
-/* ======================
-   RESUMEN
-====================== */
 const buildSummary = (s, delivery) => {
   let total = 0;
   let text = "🧾 PEDIDO CONFIRMADO\n\n";
 
-  s.pizzas.forEach((p, i) => {
+  s.pizzas.forEach((p,i) => {
     total += PRICES[p.type][p.size] + p.extras.length * PRICES.extra;
-    text += `🍕 ${i + 1}. ${p.type} ${p.size}\n`;
+    text += `🍕 ${i+1}. ${p.type} ${p.size}\n`;
     if (p.extras.length) text += `   Extras: ${p.extras.join(", ")}\n`;
     text += "\n";
   });
 
   if (delivery) {
     total += PRICES.envio;
-    text += `🚚 Envío: $40\n📍 ${s.address}\n📞 ${s.phone}\n\n`;
+    text += `🚚 Envío\n📍 ${s.address}\n📞 ${s.phone}\n\n`;
   } else {
     text += `🏪 Recoge: ${s.pickupName}\n\n`;
   }
 
-  text += `💰 TOTAL: $${total}\n\n✅ ¡Gracias por tu pedido!`;
+  text += `💰 TOTAL: $${total}\n\n✅ Gracias por tu pedido`;
   return textMsg(text);
 };
 
-/* ======================
-   ENVÍO
-====================== */
 async function sendMessage(to, payload) {
-  const msgs = Array.isArray(payload) ? payload : [payload];
-  for (const m of msgs) {
-    await fetch(`https://graph.facebook.com/v24.0/${PHONE_NUMBER_ID}/messages`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ messaging_product: "whatsapp", to, ...m })
-    });
-  }
+  await fetch(`https://graph.facebook.com/v24.0/${PHONE_NUMBER_ID}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ messaging_product: "whatsapp", to, ...payload })
+  });
 }
 
 app.listen(process.env.PORT || 8080, () =>
-  console.log("🚀 Bot blindado y listo")
+  console.log("🚀 Bot corriendo")
 );
