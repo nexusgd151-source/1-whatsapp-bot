@@ -66,7 +66,7 @@ app.post("/webhook", async (req, res) => {
             "📖 MENÚ\n\nPepperoni G $130 | EG $180\nCarnes frías G $170 | EG $220\nHawaiana G $150 | EG $210\nMexicana G $200 | EG $250\nOrilla de queso G $170 | EG $240\nExtra $15\nEnvío $40"
           );
           s.step = "menu";
-        } else if (input === "pedido") {
+        } else {
           s.currentPizza = { extras: [] };
           s.step = "pizza_type";
           reply = pizzaList();
@@ -74,7 +74,6 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "pizza_type":
-        if (!PRICES[input]) break;
         s.currentPizza.type = input;
         s.step = "size";
         reply = buttons("📏 Tamaño", [
@@ -150,44 +149,20 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "ask_address":
-        if (!rawText) break;
         s.address = rawText;
         s.step = "ask_phone";
         reply = textMsg("📞 Escribe tu número de teléfono:");
         break;
 
       case "ask_phone":
-        if (!rawText) break;
         s.phone = rawText;
-        s.step = "final_summary";
+        reply = buildSummary(s, true);
+        delete sessions[from];
         break;
 
       case "ask_pickup_name":
-        if (!rawText) break;
         s.pickupName = rawText;
-        s.step = "final_summary";
-        break;
-
-      case "final_summary":
-        let total = 0;
-        let text = "🧾 PEDIDO CONFIRMADO\n\n";
-
-        s.pizzas.forEach((p, i) => {
-          total += PRICES[p.type][p.size] + p.extras.length * PRICES.extra;
-          text += `🍕 ${i + 1}. ${p.type} ${p.size}\n`;
-          if (p.extras.length) text += `   Extras: ${p.extras.join(", ")}\n`;
-          text += "\n";
-        });
-
-        if (s.delivery === "Domicilio") {
-          total += PRICES.envio;
-          text += `🚚 Envío: $40\n📍 ${s.address}\n📞 ${s.phone}\n\n`;
-        } else {
-          text += `🏪 Recoge: ${s.pickupName}\n\n`;
-        }
-
-        text += `💰 TOTAL: $${total}\n\n✅ ¡Gracias por tu pedido!`;
-        reply = textMsg(text);
+        reply = buildSummary(s, false);
         delete sessions[from];
         break;
     }
@@ -201,7 +176,29 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-/* ==== helpers ==== */
+/* ===== helpers ===== */
+
+const buildSummary = (s, delivery) => {
+  let total = 0;
+  let text = "🧾 PEDIDO CONFIRMADO\n\n";
+
+  s.pizzas.forEach((p, i) => {
+    total += PRICES[p.type][p.size] + p.extras.length * PRICES.extra;
+    text += `🍕 ${i + 1}. ${p.type} ${p.size}\n`;
+    if (p.extras.length) text += `   Extras: ${p.extras.join(", ")}\n`;
+    text += "\n";
+  });
+
+  if (delivery) {
+    total += PRICES.envio;
+    text += `🚚 Envío: $40\n📍 ${s.address}\n📞 ${s.phone}\n\n`;
+  } else {
+    text += `🏪 Recoge: ${s.pickupName}\n\n`;
+  }
+
+  text += `💰 TOTAL: $${total}\n\n✅ ¡Gracias por tu pedido!`;
+  return textMsg(text);
+};
 
 const pizzaList = () => list("🍕 Elige tu pizza", [{
   title: "Pizzas",
