@@ -83,13 +83,25 @@ app.post("/webhook", async (req, res) => {
     const s = sessions[from];
     let reply;
 
-    /* ===== TEXTO DONDE NO DEBE ===== */
-    if (rawText && !TEXT_ALLOWED.includes(s.step)) {
-      reply = invalid(s.step);
-      reply = merge(reply, stepUI(s));
-      await sendMessage(from, reply);
-      return res.sendStatus(200);
-    }
+if (rawText && !TEXT_ALLOWED.includes(s.step)) {
+
+  // Si el usuario está en menú o inicio, SIEMPRE re-mostrar botones
+  if (["menu", "menu_option"].includes(s.step)) {
+    await sendMessage(from, merge(
+      invalid("menu"),
+      startMenu()
+    ));
+    return res.sendStatus(200);
+  }
+
+  // Para cualquier otro paso
+  await sendMessage(from, merge(
+    invalid(s.step),
+    stepUI(s)
+  ));
+  return res.sendStatus(200);
+}
+
 
     switch (s.step) {
 
