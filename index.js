@@ -244,14 +244,14 @@ const errorMsg = step =>
 
 const resendStep = s => {
   switch (s.step) {
-    case "menu": return mainMenu();
-    case "pizza_type": return pizzaList();
-    case "size": return sizeButtons();
-    case "ask_extra": return askExtra();
-    case "choose_extra": return extraList();
-    case "more_extras": return askMoreExtras();
-    case "another_pizza": return anotherPizza();
-    case "delivery_method": return deliveryButtons();
+    case "MENU": return mainMenu();
+    case "ELECCION DE PIZZA": return pizzaList();
+    case "TAMAÑO": return sizeButtons();
+    case "PREGUNTAR POR EXTRA": return askExtra();
+    case "ESCOGER EXTRA": return extraList();
+    case "OTRO EXTRA": return askMoreExtras();
+    case "ESCOGER OTRA PIZZA": return anotherPizza();
+    case "TIPO DE SERVICIO": return deliveryButtons();
     default: return mainMenu();
   }
 };
