@@ -272,4 +272,60 @@ EG $${MENU[key].EG}`,
         else if (mensaje.includes("recoger")){
           session.tipoEntrega="recoger";
           session.step="nombre";
-          await enviarMensaje(from,"Escribe el
+          await enviarMensaje(from,"Escribe el nombre de quien recoge:");
+        }
+      break;
+
+      case "direccion":
+        session.direccion=texto;
+        session.total+=ENVIO;
+        confirmarPedido(from,session);
+      break;
+
+      case "nombre":
+        session.nombre=texto;
+        confirmarPedido(from,session);
+      break;
+    }
+
+    res.sendStatus(200);
+  } catch(e){
+    console.log(e);
+    res.sendStatus(500);
+  }
+});
+
+/* ==========================
+   CONFIRMAR
+========================== */
+
+async function confirmarPedido(numero,session){
+  let resumen="🧾 PEDIDO\n\n";
+
+  session.pizzas.forEach((p,i)=>{
+    resumen+=`🍕 ${i+1}. ${p.nombre} ${p.tamano}\n`;
+    if(p.orilla) resumen+="   🧀 Orilla de queso\n";
+    if(p.extras.length)
+      resumen+=`   ➕ ${p.extras.join(", ")}\n`;
+    resumen+="\n";
+  });
+
+  if(session.tipoEntrega==="domicilio")
+    resumen+=`🚚 Envío a: ${session.direccion}\n`;
+
+  if(session.tipoEntrega==="recoger")
+    resumen+=`🏪 Recoge: ${session.nombre}\n`;
+
+  resumen+=`\n💰 TOTAL: $${session.total}`;
+
+  await enviarMensaje(numero,resumen);
+
+  limpiarSesion(numero);
+  await mostrarInicio(numero);
+}
+
+/* ==========================
+   SERVER
+========================== */
+
+app.listen(3000,()=> console.log("🤖 Bot activo"));
