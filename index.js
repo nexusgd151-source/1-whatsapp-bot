@@ -56,7 +56,6 @@ app.get("/webhook", (req, res) => {
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("✅ Webhook verificado");
     return res.status(200).send(challenge);
   }
   res.sendStatus(403);
@@ -85,13 +84,11 @@ app.post("/webhook", async (req, res) => {
 
     input = normalize(input);
 
-    // Protección total contra mensajes no válidos
     if (!rawText && !input) {
       await sendMessage(from, textMsg("⚠️ Usa los botones para continuar."));
       return res.sendStatus(200);
     }
 
-    // Crear sesión si no existe o expiró
     if (!sessions[from] || isExpired(sessions[from])) {
       resetSession(from);
       await sendMessage(from, mainMenu());
@@ -101,7 +98,6 @@ app.post("/webhook", async (req, res) => {
     const s = sessions[from];
     s.lastAction = now();
 
-    // Cancelar global
     if (input === "cancelar") {
       delete sessions[from];
       await sendMessage(from, textMsg("❌ Pedido cancelado."));
@@ -109,7 +105,6 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // Bloquear texto cuando no corresponde
     if (rawText && !TEXT_ONLY_STEPS.includes(s.step)) {
       await sendMessage(from, errorMsg(s.step));
       const stepUI = resendStep(s);
@@ -117,13 +112,12 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // Evitar spam doble click
     if (s.lastInput === input && input) {
       return res.sendStatus(200);
     }
     s.lastInput = input;
 
-    // Validar opciones esperadas
+    // 🔥 VALIDACIÓN CON REENVÍO AUTOMÁTICO
     if (
       s.expected?.length &&
       input &&
@@ -131,8 +125,12 @@ app.post("/webhook", async (req, res) => {
       !TEXT_ONLY_STEPS.includes(s.step)
     ) {
       await sendMessage(from, errorMsg(s.step));
+
       const stepUI = resendStep(s);
-      if (stepUI) await sendMessage(from, stepUI);
+      if (stepUI) {
+        await sendMessage(from, stepUI);
+      }
+
       return res.sendStatus(200);
     }
 
@@ -289,240 +287,30 @@ app.post("/webhook", async (req, res) => {
 
 
 // =======================
-// UI
+// REENVÍO DE PASO ACTUAL
 // =======================
 
-const mainMenu = () => ({
-  type: "interactive",
-  interactive: {
-    type: "button",
-    body: { text: "🍕 Bienvenido a Pizzería Villa\n¿Qué deseas hacer?" },
-    action: {
-      buttons: [
-        { type: "reply", reply: { id: "pedido", title: "🛒 Realizar pedido" } },
-        { type: "reply", reply: { id: "menu", title: "📖 Ver menú" } },
-        { type: "reply", reply: { id: "cancelar", title: "❌ Cancelar pedido" } }
-      ]
-    }
+const resendStep = (s) => {
+  switch (s.step) {
+    case "menu_option":
+      return mainMenu();
+    case "pizza_type":
+      return pizzaList();
+    case "size":
+      return sizeButtons(s.currentPizza?.type);
+    case "ask_crust":
+      return askCrust();
+    case "ask_extra":
+      return askExtra();
+    case "choose_extra":
+      return extraList();
+    case "more_extras":
+      return askExtra();
+    case "another_pizza":
+      return anotherPizza();
+    case "delivery_method":
+      return deliveryButtons();
+    default:
+      return mainMenu();
   }
-});
-
-const pizzaList = () => ({
-  type: "interactive",
-  interactive: {
-    type: "list",
-    body: { text: "🍕 Elige tu pizza" },
-    action: {
-      button: "Seleccionar",
-      sections: [{
-        title: "Pizzas",
-        rows: Object.keys(PRICES)
-          .filter(p => !["extra", "envio", "orilla_queso"].includes(p))
-          .map(p => ({
-            id: p,
-            title: `${p.replace("_", " ")}`
-          }))
-      }]
-    }
-  }
-});
-
-const sizeButtons = (pizzaType) => {
-  if (!pizzaType || !PRICES[pizzaType]) return mainMenu();
-  const prices = PRICES[pizzaType];
-
-  return {
-    type: "interactive",
-    interactive: {
-      type: "button",
-      body: { text: "📏 Tamaño" },
-      action: {
-        buttons: [
-          { type: "reply", reply: { id: "grande", title: `Grande $${prices.grande}` } },
-          { type: "reply", reply: { id: "extragrande", title: `Extra grande $${prices.extragrande}` } }
-        ]
-      }
-    }
-  };
 };
-
-const askCrust = () => ({
-  type: "interactive",
-  interactive: {
-    type: "button",
-    body: { text: "🧀 ¿Agregar orilla de queso? (+$40)" },
-    action: {
-      buttons: [
-        { type: "reply", reply: { id: "crust_si", title: "Sí" } },
-        { type: "reply", reply: { id: "crust_no", title: "No" } }
-      ]
-    }
-  }
-});
-
-const askExtra = () => ({
-  type: "interactive",
-  interactive: {
-    type: "button",
-    body: { text: "➕ ¿Agregar extra? ($15 c/u)" },
-    action: {
-      buttons: [
-        { type: "reply", reply: { id: "extra_si", title: "Sí" } },
-        { type: "reply", reply: { id: "extra_no", title: "No" } }
-      ]
-    }
-  }
-});
-
-const anotherPizza = () => ({
-  type: "interactive",
-  interactive: {
-    type: "button",
-    body: { text: "🍕 ¿Agregar otra pizza?" },
-    action: {
-      buttons: [
-        { type: "reply", reply: { id: "si", title: "Sí" } },
-        { type: "reply", reply: { id: "no", title: "No" } }
-      ]
-    }
-  }
-});
-
-const deliveryButtons = () => ({
-  type: "interactive",
-  interactive: {
-    type: "button",
-    body: { text: "🚚 ¿Cómo deseas tu pedido?" },
-    action: {
-      buttons: [
-        { type: "reply", reply: { id: "domicilio", title: "A domicilio (+$40)" } },
-        { type: "reply", reply: { id: "recoger", title: "Recoger en tienda" } }
-      ]
-    }
-  }
-});
-
-const extrasAllowed = () =>
-  ["pepperoni", "jamon", "jalapeno", "pina", "chorizo", "queso"];
-
-const extraList = () => ({
-  type: "interactive",
-  interactive: {
-    type: "list",
-    body: { text: "➕ Elige un extra ($15)" },
-    action: {
-      button: "Seleccionar",
-      sections: [{
-        title: "Extras",
-        rows: extrasAllowed().map(e => ({
-          id: e,
-          title: e
-        }))
-      }]
-    }
-  }
-});
-
-const errorMsg = (step) => ({
-  type: "text",
-  text: { body: `⚠️ Opción no válida.\nPaso actual: ${step}` }
-});
-
-const textMsg = body => ({ type: "text", text: { body } });
-
-const buildSummary = (s, delivery) => {
-  let total = 0;
-  let text = "✅ *PEDIDO CONFIRMADO*\n\n";
-
-  s.pizzas.forEach((p, i) => {
-    const base = PRICES[p.type][p.size];
-    total += base;
-
-    text += `🍕 ${i + 1}. ${p.type} (${p.size})\n`;
-    text += `Base: $${base}\n`;
-
-    if (p.crust) {
-      total += PRICES.orilla_queso;
-      text += `Orilla queso: +$${PRICES.orilla_queso}\n`;
-    }
-
-    if (p.extras?.length) {
-      const extrasTotal = p.extras.length * PRICES.extra;
-      total += extrasTotal;
-      text += `Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
-    }
-
-    text += "\n";
-  });
-
-  if (delivery) {
-    total += PRICES.envio;
-    text += `🚚 Envío: +$${PRICES.envio}\n`;
-    text += `📍 ${s.address}\n`;
-    text += `📞 ${s.phone}\n\n`;
-  } else {
-    text += `🏪 Recoger en tienda\n`;
-    text += `🙋 ${s.pickupName}\n\n`;
-  }
-
-  text += `💰 TOTAL: $${total}`;
-  return textMsg(text);
-};
-
-
-// =======================
-// SEND MESSAGE
-// =======================
-
-async function sendMessage(to, payload) {
-  try {
-    const response = await fetch(
-      `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to,
-          ...payload
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json();
-      console.error("❌ WhatsApp API:", error);
-    }
-
-  } catch (error) {
-    console.error("❌ sendMessage error:", error);
-  }
-}
-
-
-// =======================
-// LIMPIEZA SESIONES
-// =======================
-
-setInterval(() => {
-  const nowTime = now();
-  Object.keys(sessions).forEach(key => {
-    if (nowTime - sessions[key].lastAction > SESSION_TIMEOUT) {
-      delete sessions[key];
-    }
-  });
-}, 60000);
-
-
-// =======================
-// START SERVER
-// =======================
-
-const PORT = process.env.PORT || 8080;
-
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot corriendo en puerto ${PORT}`);
-});
