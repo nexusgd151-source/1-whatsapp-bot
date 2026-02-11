@@ -17,7 +17,6 @@ const PRICES = {
   carnes_frias: { grande: 170, extragrande: 220 },
   hawaiana: { grande: 150, extragrande: 210 },
   mexicana: { grande: 200, extragrande: 250 },
-  orilla_queso: 40,
   extra: 15,
   envio: 40
 };
@@ -35,7 +34,7 @@ const normalize = t =>
 
 const now = () => Date.now();
 
-const resetSession = from => {
+const resetSession = (from) => {
   sessions[from] = {
     step: "menu",
     pizzas: [],
@@ -44,10 +43,7 @@ const resetSession = from => {
   };
 };
 
-const expired = s => now() - s.lastAction > SESSION_TIMEOUT;
-
-const rawAllowed = step =>
-  ["ask_address", "ask_phone", "ask_pickup_name"].includes(step);
+const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
 
 // =======================
 // WEBHOOK
@@ -67,8 +63,10 @@ app.post("/webhook", async (req, res) => {
 
     input = normalize(input);
 
-    // ===== SESIÓN =====
-    if (!sessions[from] || expired(sessions[from])) {
+    // =======================
+    // SESSION
+    // =======================
+    if (!sessions[from] || isExpired(sessions[from])) {
       resetSession(from);
       await sendMessage(from, mainMenu());
       return res.sendStatus(200);
@@ -77,7 +75,9 @@ app.post("/webhook", async (req, res) => {
     const s = sessions[from];
     s.lastAction = now();
 
-    // ===== CANCELAR =====
+    // =======================
+    // CANCELAR
+    // =======================
     if (input === "cancelar") {
       resetSession(from);
       await sendMessage(from, textMsg("❌ Pedido cancelado."));
@@ -85,8 +85,14 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // ===== VALIDACIÓN ANTI-TONTOS =====
-    if (s.expected.length && !s.expected.includes(input) && !rawAllowed(s.step)) {
+    // =======================
+    // VALIDACIÓN
+    // =======================
+    if (
+      s.expected.length &&
+      !s.expected.includes(input) &&
+      !rawTextAllowed(s.step)
+    ) {
       await sendMessage(from, errorMsg(s.step));
       await sendMessage(from, resendStep(s));
       return res.sendStatus(200);
@@ -94,6 +100,9 @@ app.post("/webhook", async (req, res) => {
 
     let reply;
 
+    // =======================
+    // FLOW
+    // =======================
     switch (s.step) {
 
       case "menu":
@@ -107,43 +116,36 @@ app.post("/webhook", async (req, res) => {
           reply = menuText();
           s.step = "menu";
         } else {
-          s.currentPizza = { extras: [], orilla: false };
-          s.expected = pizzaKeys();
+          s.currentPizza = { extras: [] };
           s.step = "pizza_type";
+          s.expected = Object.keys(PRICES).filter(p => !["extra","envio"].includes(p));
           reply = pizzaList();
         }
         break;
 
       case "pizza_type":
         s.currentPizza.type = input;
-        s.expected = ["grande", "extragrande"];
         s.step = "size";
+        s.expected = ["grande", "extragrande"];
         reply = sizeButtons();
         break;
 
       case "size":
         s.currentPizza.size = input;
-        s.expected = ["orilla_si", "orilla_no"];
-        s.step = "orilla";
-        reply = orillaButtons();
-        break;
-
-      case "orilla":
-        s.currentPizza.orilla = input === "orilla_si";
-        s.expected = ["extra_si", "extra_no"];
         s.step = "ask_extra";
+        s.expected = ["extra_si", "extra_no"];
         reply = askExtra();
         break;
 
       case "ask_extra":
         if (input === "extra_si") {
-          s.expected = extrasAllowed();
           s.step = "choose_extra";
+          s.expected = extrasAllowed();
           reply = extraList();
         } else {
           s.pizzas.push(s.currentPizza);
-          s.expected = ["si", "no"];
           s.step = "another_pizza";
+          s.expected = ["si", "no"];
           reply = anotherPizza();
         }
         break;
@@ -152,43 +154,45 @@ app.post("/webhook", async (req, res) => {
         if (!s.currentPizza.extras.includes(input)) {
           s.currentPizza.extras.push(input);
         }
-        s.expected = ["extra_si", "extra_no"];
         s.step = "more_extras";
+        s.expected = ["extra_si", "extra_no"];
         reply = askExtra();
         break;
 
       case "more_extras":
         if (input === "extra_si") {
-          s.expected = extrasAllowed();
           s.step = "choose_extra";
+          s.expected = extrasAllowed();
           reply = extraList();
         } else {
           s.pizzas.push(s.currentPizza);
-          s.expected = ["si", "no"];
           s.step = "another_pizza";
+          s.expected = ["si", "no"];
           reply = anotherPizza();
         }
         break;
 
       case "another_pizza":
         if (input === "si") {
-          s.currentPizza = { extras: [], orilla: false };
-          s.expected = pizzaKeys();
+          s.currentPizza = { extras: [] };
           s.step = "pizza_type";
+          s.expected = Object.keys(PRICES).filter(p => !["extra","envio"].includes(p));
           reply = pizzaList();
         } else {
+          s.step = "delivery_method";
           s.expected = ["domicilio", "recoger"];
-          s.step = "delivery";
           reply = deliveryButtons();
         }
         break;
 
-      case "delivery":
+      case "delivery_method":
         if (input === "domicilio") {
+          s.delivery = "Domicilio";
           s.step = "ask_address";
           s.expected = [];
-          reply = textMsg("📍 Escribe tu dirección:");
+          reply = textMsg("📍 Escribe tu dirección completa:");
         } else {
+          s.delivery = "Recoger";
           s.step = "ask_pickup_name";
           s.expected = [];
           reply = textMsg("🙋 Nombre de quien recoge:");
@@ -224,53 +228,67 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
+// HELPERS
+// =======================
+const rawTextAllowed = step =>
+  ["ask_address", "ask_phone", "ask_pickup_name"].includes(step);
+
+const errorMsg = step =>
+  textMsg(`⚠️ Opción no válida.\n👉 Estás en el paso: *${step}*`);
+
+const resendStep = s => {
+  switch (s.step) {
+    case "menu":
+    case "menu_option": return mainMenu();
+    case "pizza_type": return pizzaList();
+    case "size": return sizeButtons();
+    case "ask_extra": return askExtra();
+    case "choose_extra": return extraList();
+    case "more_extras": return askExtra();
+    case "another_pizza": return anotherPizza();
+    case "delivery_method": return deliveryButtons();
+    default: return mainMenu();
+  }
+};
+
+// =======================
 // UI
 // =======================
 const mainMenu = () => buttons("🍕 Bienvenido a Pizzería Villa", [
   { id: "pedido", title: "🛒 Realizar pedido" },
   { id: "menu", title: "📖 Ver menú" },
-  { id: "cancelar", title: "❌ Cancelar pedido" }
+  { id: "cancelar", title: "❌ Cancelar" }
 ]);
-
-const pizzaKeys = () =>
-  Object.keys(PRICES).filter(p => typeof PRICES[p] === "object");
 
 const pizzaList = () => list("🍕 Elige tu pizza", [{
   title: "Pizzas",
-  rows: pizzaKeys().map(p => ({
-    id: p,
-    title: `${p.replace("_"," ")} ($${PRICES[p].grande} / $${PRICES[p].extragrande})`
-  }))
+  rows: Object.keys(PRICES)
+    .filter(p => !["extra","envio"].includes(p))
+    .map(p => ({ id: p, title: p.replace("_"," ") }))
 }]);
 
 const sizeButtons = () => buttons("📏 Tamaño", [
   { id: "grande", title: "Grande" },
   { id: "extragrande", title: "Extra grande" },
-  { id: "cancelar", title: "❌ Cancelar pedido" }
+  { id: "cancelar", title: "❌ Cancelar" }
 ]);
 
-const orillaButtons = () => buttons("🧀 ¿Agregar orilla de queso? ($40)", [
-  { id: "orilla_si", title: "Sí" },
-  { id: "orilla_no", title: "No" },
-  { id: "cancelar", title: "❌ Cancelar pedido" }
-]);
-
-const askExtra = () => buttons("➕ ¿Agregar extra? ($15)", [
+const askExtra = () => buttons("➕ ¿Agregar extra?", [
   { id: "extra_si", title: "Sí" },
   { id: "extra_no", title: "No" },
-  { id: "cancelar", title: "❌ Cancelar pedido" }
+  { id: "cancelar", title: "❌ Cancelar" }
 ]);
 
 const anotherPizza = () => buttons("🍕 ¿Agregar otra pizza?", [
   { id: "si", title: "Sí" },
   { id: "no", title: "No" },
-  { id: "cancelar", title: "❌ Cancelar pedido" }
+  { id: "cancelar", title: "❌ Cancelar" }
 ]);
 
 const deliveryButtons = () => buttons("🚚 ¿Cómo deseas tu pedido?", [
   { id: "domicilio", title: "A domicilio" },
-  { id: "recoger", title: "Recoger en tienda" },
-  { id: "cancelar", title: "❌ Cancelar pedido" }
+  { id: "recoger", title: "Recoger" },
+  { id: "cancelar", title: "❌ Cancelar" }
 ]);
 
 const extrasAllowed = () =>
@@ -282,21 +300,7 @@ const extraList = () => list("➕ Elige un extra ($15)", [{
 }]);
 
 const menuText = () =>
-  textMsg("📖 MENÚ\nPepperoni $130\nHawaiana $150\nMexicana $200\nOrilla queso $40\nExtra $15\nEnvío $40");
-
-const errorMsg = step =>
-  textMsg(`⚠️ Opción no válida.\n👉 Estás en el paso: ${step}\nUsa los botones.`);
-
-const resendStep = s => ({
-  menu: mainMenu(),
-  pizza_type: pizzaList(),
-  size: sizeButtons(),
-  orilla: orillaButtons(),
-  ask_extra: askExtra(),
-  choose_extra: extraList(),
-  another_pizza: anotherPizza(),
-  delivery: deliveryButtons()
-}[s.step] || mainMenu());
+  textMsg("📖 MENÚ\nPepperoni $130\nHawaiana $150\nMexicana $200\nExtra $15\nEnvío $40");
 
 const textMsg = body => ({ type: "text", text: { body } });
 
@@ -323,21 +327,13 @@ const list = (text, sections) => ({
   }
 });
 
-// =======================
-// RESUMEN
-// =======================
 const buildSummary = (s, delivery) => {
   let total = 0;
   let text = "🧾 PEDIDO CONFIRMADO\n\n";
 
   s.pizzas.forEach((p,i) => {
-    let price = PRICES[p.type][p.size];
-    if (p.orilla) price += PRICES.orilla_queso;
-    price += p.extras.length * PRICES.extra;
-    total += price;
-
+    total += PRICES[p.type][p.size] + p.extras.length * PRICES.extra;
     text += `🍕 ${i+1}. ${p.type} ${p.size}\n`;
-    if (p.orilla) text += "   🧀 Orilla de queso\n";
     if (p.extras.length) text += `   Extras: ${p.extras.join(", ")}\n`;
     text += "\n";
   });
@@ -353,7 +349,6 @@ const buildSummary = (s, delivery) => {
   return textMsg(text);
 };
 
-// =======================
 async function sendMessage(to, payload) {
   await fetch(`https://graph.facebook.com/v24.0/${PHONE_NUMBER_ID}/messages`, {
     method: "POST",
