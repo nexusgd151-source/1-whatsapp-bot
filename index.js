@@ -120,7 +120,7 @@ app.post("/webhook", async (req, res) => {
 
     // 2. ANTI-SPAM: mismo botón repetido
     if (s.lastInput === input && !TEXT_ONLY_STEPS.includes(s.step)) {
-      return res.sendStatus(200); // Ignorar silenciosamente
+      return res.sendStatus(200);
     }
     s.lastInput = input;
 
@@ -139,7 +139,7 @@ app.post("/webhook", async (req, res) => {
     let reply = null;
 
     // =======================
-    // FLUJO ORIGINAL + ORILLA DE QUESO
+    // FLUJO ORIGINAL CORREGIDO
     // =======================
     switch (s.step) {
 
@@ -153,7 +153,7 @@ app.post("/webhook", async (req, res) => {
         if (input === "menu") {
           reply = menuText();
           s.step = "menu";
-        } else if (input === "pedido") {
+        } else if (input === "pedido") {  // 👈 CORREGIDO
           s.currentPizza = { extras: [], crust: false };
           s.step = "pizza_type";
           s.expected = Object.keys(PRICES).filter(p => 
@@ -524,7 +524,7 @@ setInterval(() => {
       console.log(`🧹 Sesión expirada: ${key}`);
     }
   });
-}, 60000); // Cada minuto
+}, 60000);
 
 // =======================
 // START SERVER
