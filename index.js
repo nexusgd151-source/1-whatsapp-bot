@@ -589,4 +589,5 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Bot corriendo en puerto ${PORT}`);
   console.log(`📱 Webhook URL: https://tu-app.onrender.com/webhook`);
+  
 });
