@@ -14,7 +14,7 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const SESSION_TIMEOUT = 5 * 60 * 1000;
 
 // 🔥 NÚMERO DE LA PIZZERÍA (DONDE LLEGAN LOS PEDIDOS) 🔥
-const BUSINESS_NUMBER = "5216391946965"; // 👈 YA ESTÁ CORRECTO
+const BUSINESS_NUMBER = "5216391307561"; // 👈 YA ESTÁ CORRECTO
 
 const PRICES = {
   pepperoni: { grande: 130, extragrande: 180 },
