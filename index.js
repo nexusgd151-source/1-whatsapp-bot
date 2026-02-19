@@ -13,6 +13,9 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 // =======================
 const SESSION_TIMEOUT = 5 * 60 * 1000;
 
+// 🔥 NÚMERO DE LA PIZZERÍA (DONDE LLEGAN LOS PEDIDOS) 🔥
+const BUSINESS_NUMBER = "5216391307561"; // 👈 CAMBIA ESTO
+
 const PRICES = {
   pepperoni: { grande: 130, extragrande: 180 },
   carnes_frias: { grande: 170, extragrande: 220 },
@@ -42,7 +45,8 @@ const resetSession = (from) => {
     pizzas: [],
     currentPizza: { extras: [], crust: false },
     lastAction: now(),
-    lastInput: null
+    lastInput: null,
+    clientNumber: from // 👈 Guardamos el número del cliente
   };
 };
 
@@ -116,14 +120,12 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // ===== TEXTO NO PERMITIDO (CORREGIDO) =====
+    // ===== TEXTO NO PERMITIDO =====
     if (rawText && !TEXT_ONLY_STEPS.includes(s.step)) {
       console.log(`⚠️ Texto no permitido en paso: ${s.step}`);
       
-      // Enviar mensaje de error
       await sendMessage(from, textMsg(`⚠️ Por favor, usa los botones.\n👉 Estás en: *${stepName(s.step)}*`));
       
-      // OBTENER Y ENVIAR LOS BOTONES
       const botones = stepUI(s);
       
       if (botones) {
@@ -139,12 +141,8 @@ app.post("/webhook", async (req, res) => {
 
     let reply = null;
 
-    // =======================
-    // FLUJO AMIGABLE
-    // =======================
     switch (s.step) {
 
-      // ===== BIENVENIDA =====
       case "welcome":
         if (input === "pedido") {
           console.log("🛒 Usuario quiere hacer pedido");
@@ -159,7 +157,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // 1. ELEGIR PIZZA
       case "pizza_type":
         if (!PRICES[input]) {
           console.log(`❌ Pizza no válida: ${input}`);
@@ -174,7 +171,6 @@ app.post("/webhook", async (req, res) => {
         reply = sizeButtons(s.currentPizza.type);
         break;
 
-      // 2. ELEGIR TAMAÑO
       case "size":
         if (!["grande", "extragrande"].includes(input)) {
           console.log(`❌ Tamaño no válido: ${input}`);
@@ -187,7 +183,6 @@ app.post("/webhook", async (req, res) => {
         reply = askCrust();
         break;
 
-      // 3. ORILLA DE QUESO
       case "ask_cheese_crust":
         if (input === "crust_si") {
           console.log("✅ Con orilla de queso");
@@ -204,7 +199,6 @@ app.post("/webhook", async (req, res) => {
         reply = askExtra();
         break;
 
-      // 4. ¿AGREGAR EXTRA?
       case "ask_extra":
         if (input === "extra_si") {
           console.log("➕ Usuario quiere extras");
@@ -222,7 +216,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // 5. ELEGIR EXTRA
       case "choose_extra":
         if (!extrasAllowed().includes(input)) {
           console.log(`❌ Extra no válido: ${input}`);
@@ -235,7 +228,6 @@ app.post("/webhook", async (req, res) => {
         reply = askMoreExtras();
         break;
 
-      // 6. ¿OTRO EXTRA?
       case "more_extras":
         if (input === "extra_si") {
           console.log("➕ Usuario quiere otro extra");
@@ -253,7 +245,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // 7. ¿OTRA PIZZA?
       case "another_pizza":
         if (input === "si") {
           console.log("🍕 Usuario quiere otra pizza");
@@ -269,7 +260,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // 8. MÉTODO DE ENTREGA
       case "delivery_method":
         if (input === "domicilio") {
           console.log("🚚 Usuario elige domicilio");
@@ -287,7 +277,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // 9. DIRECCIÓN
       case "ask_address":
         if (!rawText || rawText.length < 5) {
           console.log(`⚠️ Dirección muy corta: ${rawText}`);
@@ -300,7 +289,7 @@ app.post("/webhook", async (req, res) => {
         reply = textMsg("📞 *TELÉFONO*\n\nEscribe tu número de teléfono:");
         break;
 
-      // 10. TELÉFONO
+      // ===== TELÉFONO - AQUÍ SE ENVÍA AL NEGOCIO =====
       case "ask_phone":
         if (!rawText || rawText.length < 8) {
           console.log(`⚠️ Teléfono muy corto: ${rawText}`);
@@ -309,12 +298,25 @@ app.post("/webhook", async (req, res) => {
         }
         console.log(`📞 Teléfono guardado: ${rawText}`);
         s.phone = rawText;
-        reply = buildSummary(s);
-        console.log("✅ Pedido completado, sesión eliminada");
+        
+        // Generar resúmenes
+        const resumenCliente = buildSummary(s);
+        const resumenNegocio = buildBusinessSummary(s);
+        
+        // Enviar al cliente
+        await sendMessage(from, resumenCliente);
+        
+        // 🔥 ENVIAR AL NEGOCIO 🔥
+        if (BUSINESS_NUMBER) {
+          await sendMessage(BUSINESS_NUMBER, resumenNegocio);
+          console.log(`📨 Pedido enviado a la pizzería: ${BUSINESS_NUMBER}`);
+        }
+        
         delete sessions[from];
+        reply = null;
         break;
 
-      // 11. NOMBRE PARA RECOGER
+      // ===== NOMBRE PARA RECOGER - AQUÍ SE ENVÍA AL NEGOCIO =====
       case "ask_pickup_name":
         if (!rawText || rawText.length < 3) {
           console.log(`⚠️ Nombre muy corto: ${rawText}`);
@@ -323,9 +325,22 @@ app.post("/webhook", async (req, res) => {
         }
         console.log(`🙋 Nombre guardado: ${rawText}`);
         s.pickupName = rawText;
-        reply = buildSummary(s);
-        console.log("✅ Pedido completado, sesión eliminada");
+        
+        // Generar resúmenes
+        const resumenClientePickup = buildSummary(s);
+        const resumenNegocioPickup = buildBusinessSummary(s);
+        
+        // Enviar al cliente
+        await sendMessage(from, resumenClientePickup);
+        
+        // 🔥 ENVIAR AL NEGOCIO 🔥
+        if (BUSINESS_NUMBER) {
+          await sendMessage(BUSINESS_NUMBER, resumenNegocioPickup);
+          console.log(`📨 Pedido (recoger) enviado a la pizzería: ${BUSINESS_NUMBER}`);
+        }
+        
         delete sessions[from];
+        reply = null;
         break;
     }
 
@@ -341,6 +356,63 @@ app.post("/webhook", async (req, res) => {
     res.sendStatus(500);
   }
 });
+
+// =======================
+// 🔥 NUEVA FUNCIÓN - RESUMEN PARA EL NEGOCIO 🔥
+// =======================
+const buildBusinessSummary = (s) => {
+  let total = 0;
+  let text = "🛎️ *NUEVO PEDIDO* 🛎️\n\n";
+  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
+  
+  text += `👤 *CLIENTE*: ${s.clientNumber}\n\n`;
+
+  s.pizzas.forEach((p, i) => {
+    const pizzaPrice = PRICES[p.type][p.size];
+    total += pizzaPrice;
+    
+    text += `🍕 *PIZZA ${i + 1}*\n`;
+    text += `   • ${p.type.replace("_", " ")}\n`;
+    text += `   • ${p.size === "grande" ? "Grande" : "Extra grande"}\n`;
+    text += `   • Base: $${pizzaPrice}\n`;
+    
+    if (p.crust) {
+      total += PRICES.orilla_queso;
+      text += `   • 🧀 Orilla de queso: +$${PRICES.orilla_queso}\n`;
+    }
+    
+    if (p.extras?.length) {
+      const extrasTotal = p.extras.length * PRICES.extra;
+      total += extrasTotal;
+      text += `   • ➕ Extras: ${p.extras.map(e => 
+        e.charAt(0).toUpperCase() + e.slice(1)
+      ).join(", ")} (+$${extrasTotal})\n`;
+    }
+    text += "\n";
+  });
+
+  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
+
+  if (s.delivery) {
+    total += PRICES.envio;
+    text += `🚚 *ENTREGA*: A domicilio\n`;
+    text += `   • Envío: +$${PRICES.envio}\n`;
+    text += `   • 📍 Dirección: ${s.address}\n`;
+    text += `   • 📞 Teléfono: ${s.phone}\n\n`;
+  } else {
+    text += `🏪 *ENTREGA*: Recoger en tienda\n`;
+    text += `   • 🙋 Nombre: ${s.pickupName}\n\n`;
+  }
+
+  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
+  text += `💰 *TOTAL: $${total} MXN*\n`;
+  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
+  text += `🕒 *HORA*: ${new Date().toLocaleString('es-MX')}\n`;
+  text += "━━━━━━━━━━━━━━━━━━━━━━\n";
+  text += "✨ *Prepáralo con amor* ✨";
+
+  return { type: "text", text: { body: text } };
+};
 
 // =======================
 // UI AMIGABLE
@@ -658,5 +730,6 @@ setInterval(() => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Bot corriendo en puerto ${PORT}`);
-  console.log(`📱 Webhook URL: https://tu-app.onrender.com/webhook`);
+  console.log(`📱 Número de la pizzería: ${BUSINESS_NUMBER}`);
+  console.log(`🔗 Webhook URL: https://tu-app.onrender.com/webhook`);
 });
