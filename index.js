@@ -14,7 +14,7 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const SESSION_TIMEOUT = 5 * 60 * 1000;
 
 // 🔥 NÚMERO DE LA PIZZERÍA (DONDE LLEGAN LOS PEDIDOS) 🔥
-const BUSINESS_NUMBER = "5216391307561"; // 👈 YA ESTÁ CORRECTO
+const BUSINESS_NUMBER = "5216391307561";
 
 const PRICES = {
   pepperoni: { grande: 130, extragrande: 180 },
@@ -54,17 +54,21 @@ const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name"];
 
 // =======================
-// WEBHOOK - GET
+// WEBHOOK - GET (OBLIGATORIO PARA META)
 // =======================
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
+  console.log("🔍 Verificación recibida:", { mode, token, challenge });
+
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("✅ Webhook verificado");
+    console.log("✅ Webhook verificado correctamente");
     return res.status(200).send(challenge);
   }
+  
+  console.log("❌ Error de verificación - token incorrecto");
   res.sendStatus(403);
 });
 
@@ -73,11 +77,17 @@ app.get("/webhook", (req, res) => {
 // =======================
 app.post("/webhook", async (req, res) => {
   try {
+    console.log("📩 Webhook POST recibido");
+    
     const value = req.body.entry?.[0]?.changes?.[0]?.value;
-    if (!value?.messages) return res.sendStatus(200);
+    if (!value?.messages) {
+      console.log("ℹ️ No hay mensajes en el webhook");
+      return res.sendStatus(200);
+    }
 
     const msg = value.messages[0];
     const from = msg.from;
+    console.log(`📨 Mensaje de ${from}:`, msg);
 
     const rawText = msg.text?.body;
     let input =
@@ -571,11 +581,16 @@ const buildSummary = (s, delivery) => {
   return { type: "text", text: { body: text } };
 };
 
+// =======================
+// SEND MESSAGE CON LOGS
+// =======================
 async function sendMessage(to, payload) {
   try {
+    console.log(`📤 Enviando a ${to}:`, JSON.stringify(payload, null, 2));
+    
     const msgs = Array.isArray(payload) ? payload : [payload];
     for (const m of msgs) {
-      await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
+      const response = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${WHATSAPP_TOKEN}`,
@@ -588,6 +603,14 @@ async function sendMessage(to, payload) {
           ...m
         })
       });
+
+      const responseData = await response.json();
+      
+      if (!response.ok) {
+        console.error("❌ Error WhatsApp API:", responseData);
+      } else {
+        console.log("✅ Mensaje enviado:", responseData);
+      }
     }
   } catch (error) {
     console.error("❌ Error sendMessage:", error);
@@ -614,4 +637,5 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Bot corriendo en puerto ${PORT}`);
   console.log(`📱 Número de la pizzería: ${BUSINESS_NUMBER}`);
+  console.log(`🔗 Webhook URL: https://tu-app.onrender.com/webhook`);
 });
