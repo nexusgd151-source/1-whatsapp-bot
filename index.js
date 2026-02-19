@@ -13,8 +13,8 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 // =======================
 const SESSION_TIMEOUT = 5 * 60 * 1000;
 
-// 🔥 NÚMERO DE LA PIZZERÍA (DONDE LLEGAN LOS PEDIDOS) 🔥
-const BUSINESS_NUMBER = "5216391759607"; // 👈 CAMBIA ESTO
+// 🔥 NÚMERO DE LA PIZZERÍA
+const BUSINESS_NUMBER = "5216391759607";
 
 const PRICES = {
   pepperoni: { grande: 130, extragrande: 180 },
@@ -46,7 +46,7 @@ const resetSession = (from) => {
     currentPizza: { extras: [], crust: false },
     lastAction: now(),
     lastInput: null,
-    clientNumber: from // 👈 Guardamos el número del cliente
+    clientNumber: from
   };
 };
 
@@ -69,7 +69,49 @@ app.get("/webhook", (req, res) => {
 });
 
 // =======================
-// WEBHOOK - POST
+// TEST - ENVIAR AL NEGOCIO
+// =======================
+app.get("/test-business", async (req, res) => {
+  console.log("🧪 Test: Intentando enviar mensaje al negocio");
+  try {
+    const testMessage = {
+      type: "text",
+      text: { body: "🧪 *MENSAJE DE PRUEBA*\n\nSi ves esto, el bot puede enviar mensajes al negocio.\n\n🕒 Hora: " + new Date().toLocaleString('es-MX') }
+    };
+    
+    console.log(`📤 Enviando a ${BUSINESS_NUMBER}:`, testMessage);
+    
+    const response = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: BUSINESS_NUMBER,
+        ...testMessage
+      })
+    });
+
+    const responseData = await response.json();
+    
+    if (!response.ok) {
+      console.error("❌ Error WhatsApp API:", responseData);
+      res.send(`❌ Error: ${JSON.stringify(responseData)}`);
+    } else {
+      console.log("✅ Mensaje de prueba enviado:", responseData);
+      res.send(`✅ Mensaje enviado a ${BUSINESS_NUMBER}`);
+    }
+  } catch (error) {
+    console.error("❌ Error en test:", error);
+    res.send(`❌ Error: ${error.message}`);
+  }
+});
+
+// =======================
+// WEBHOOK - POST (TODO TU FLUJO)
 // =======================
 app.post("/webhook", async (req, res) => {
   try {
@@ -92,7 +134,6 @@ app.post("/webhook", async (req, res) => {
 
     if (input) input = normalize(input);
 
-    // ===== SESIÓN =====
     if (!sessions[from] || isExpired(sessions[from])) {
       console.log(`🆕 Nueva sesión para ${from}`);
       resetSession(from);
@@ -104,14 +145,12 @@ app.post("/webhook", async (req, res) => {
     s.lastAction = now();
     console.log(`📍 Paso actual: ${s.step}, input: ${input}`);
 
-    // ===== ANTI-SPAM =====
     if (s.lastInput === input && !TEXT_ONLY_STEPS.includes(s.step)) {
       console.log(`🛑 Anti-spam: mismo input repetido`);
       return res.sendStatus(200);
     }
     s.lastInput = input;
 
-    // ===== CANCELAR =====
     if (input === "cancelar") {
       console.log(`❌ Cancelando pedido de ${from}`);
       delete sessions[from];
@@ -120,7 +159,6 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // ===== TEXTO NO PERMITIDO =====
     if (rawText && !TEXT_ONLY_STEPS.includes(s.step)) {
       console.log(`⚠️ Texto no permitido en paso: ${s.step}`);
       
@@ -289,7 +327,6 @@ app.post("/webhook", async (req, res) => {
         reply = textMsg("📞 *TELÉFONO*\n\nEscribe tu número de teléfono:");
         break;
 
-      // ===== TELÉFONO - AQUÍ SE ENVÍA AL NEGOCIO =====
       case "ask_phone":
         if (!rawText || rawText.length < 8) {
           console.log(`⚠️ Teléfono muy corto: ${rawText}`);
@@ -299,24 +336,19 @@ app.post("/webhook", async (req, res) => {
         console.log(`📞 Teléfono guardado: ${rawText}`);
         s.phone = rawText;
         
-        // Generar resúmenes
         const resumenCliente = buildSummary(s);
         const resumenNegocio = buildBusinessSummary(s);
         
-        // Enviar al cliente
         await sendMessage(from, resumenCliente);
         
-        // 🔥 ENVIAR AL NEGOCIO 🔥
-        if (BUSINESS_NUMBER) {
-          await sendMessage(BUSINESS_NUMBER, resumenNegocio);
-          console.log(`📨 Pedido enviado a la pizzería: ${BUSINESS_NUMBER}`);
-        }
+        console.log(`📨 Intentando enviar a negocio: ${BUSINESS_NUMBER}`);
+        await sendMessage(BUSINESS_NUMBER, resumenNegocio);
+        console.log(`📨 Pedido enviado a la pizzería: ${BUSINESS_NUMBER}`);
         
         delete sessions[from];
         reply = null;
         break;
 
-      // ===== NOMBRE PARA RECOGER - AQUÍ SE ENVÍA AL NEGOCIO =====
       case "ask_pickup_name":
         if (!rawText || rawText.length < 3) {
           console.log(`⚠️ Nombre muy corto: ${rawText}`);
@@ -326,18 +358,14 @@ app.post("/webhook", async (req, res) => {
         console.log(`🙋 Nombre guardado: ${rawText}`);
         s.pickupName = rawText;
         
-        // Generar resúmenes
         const resumenClientePickup = buildSummary(s);
         const resumenNegocioPickup = buildBusinessSummary(s);
         
-        // Enviar al cliente
         await sendMessage(from, resumenClientePickup);
         
-        // 🔥 ENVIAR AL NEGOCIO 🔥
-        if (BUSINESS_NUMBER) {
-          await sendMessage(BUSINESS_NUMBER, resumenNegocioPickup);
-          console.log(`📨 Pedido (recoger) enviado a la pizzería: ${BUSINESS_NUMBER}`);
-        }
+        console.log(`📨 Intentando enviar a negocio: ${BUSINESS_NUMBER}`);
+        await sendMessage(BUSINESS_NUMBER, resumenNegocioPickup);
+        console.log(`📨 Pedido (recoger) enviado a la pizzería: ${BUSINESS_NUMBER}`);
         
         delete sessions[from];
         reply = null;
@@ -358,7 +386,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🔥 NUEVA FUNCIÓN - RESUMEN PARA EL NEGOCIO 🔥
+// FUNCIÓN PARA RESUMEN DEL NEGOCIO
 // =======================
 const buildBusinessSummary = (s) => {
   let total = 0;
@@ -418,9 +446,7 @@ const buildBusinessSummary = (s) => {
 // UI AMIGABLE
 // =======================
 const welcomeMessage = () => buttons(
-  "🍕 *BIENVENIDO A PIZZERÍA VILLA* 🍕\n\n" +
-  "¡La mejor pizza de la colonia!\n\n" +
-  "¿Qué deseas hacer hoy?",
+  "🍕 *BIENVENIDO A PIZZERÍA VILLA* 🍕\n\n¡La mejor pizza de la colonia!\n\n¿Qué deseas hacer hoy?",
   [
     { id: "pedido", title: "🛒 Hacer pedido" },
     { id: "menu", title: "📖 Ver menú" },
@@ -430,126 +456,90 @@ const welcomeMessage = () => buttons(
 
 const menuText = () => textMsg(
   "📖 *MENÚ PIZZERÍA VILLA*\n\n" +
-  "🍕 *PEPPERONI*\n" +
-  "   • Grande: $130\n" +
-  "   • Extra grande: $180\n\n" +
-  "🍕 *CARNES FRÍAS*\n" +
-  "   • Grande: $170\n" +
-  "   • Extra grande: $220\n\n" +
-  "🍕 *HAWAIANA*\n" +
-  "   • Grande: $150\n" +
-  "   • Extra grande: $210\n\n" +
-  "🍕 *MEXICANA*\n" +
-  "   • Grande: $200\n" +
-  "   • Extra grande: $250\n\n" +
+  "🍕 *PEPPERONI*\n   • Grande: $130\n   • Extra grande: $180\n\n" +
+  "🍕 *CARNES FRÍAS*\n   • Grande: $170\n   • Extra grande: $220\n\n" +
+  "🍕 *HAWAIANA*\n   • Grande: $150\n   • Extra grande: $210\n\n" +
+  "🍕 *MEXICANA*\n   • Grande: $200\n   • Extra grande: $250\n\n" +
   "🧀 *ORILLA DE QUESO*: +$40\n" +
   "➕ *EXTRAS*: $15 c/u\n" +
-  "🚚 *ENVÍO*: $40\n\n" +
-  "✨ *¡Todas nuestras pizzas son horneadas al momento!*"
+  "🚚 *ENVÍO*: $40"
 );
 
 const pizzaList = () => list(
-  "🍕 *ELIGE TU PIZZA*\n\nSelecciona una opción:", [{
-    title: "PIZZAS DISPONIBLES",
+  "🍕 *ELIGE TU PIZZA*", [{
+    title: "PIZZAS",
     rows: Object.keys(PRICES)
       .filter(p => !["extra", "envio", "orilla_queso"].includes(p))
       .map(p => ({
         id: p,
         title: `🍕 ${p.replace("_", " ")}`,
-        description: `Grande $${PRICES[p].grande} | Extra $${PRICES[p].extragrande}`
+        description: `G $${PRICES[p].grande} | EG $${PRICES[p].extragrande}`
       }))
   }]
 );
 
 const sizeButtons = (pizzaType) => {
-  const pizza = pizzaType.replace("_", " ");
   const prices = PRICES[pizzaType];
-  return buttons(
-    `📏 *TAMAÑO*\n\nPara: ${pizza}\n\nElige el tamaño:`,
-    [
-      { id: "grande", title: `Grande $${prices.grande}` },
-      { id: "extragrande", title: `Extra $${prices.extragrande}` },
-      { id: "cancelar", title: "❌ Cancelar" }
-    ]
-  );
+  return buttons("📏 *TAMAÑO*", [
+    { id: "grande", title: `Grande $${prices.grande}` },
+    { id: "extragrande", title: `Extra $${prices.extragrande}` },
+    { id: "cancelar", title: "❌ Cancelar" }
+  ]);
 };
 
-const askCrust = () => buttons(
-  "🧀 *ORILLA DE QUESO*\n\n" +
-  "¿Quieres orilla de queso?\n" +
-  "✔️ Queso derretido en la orilla\n" +
-  "💰 *+$40*",
-  [
-    { id: "crust_si", title: "✅ Sí (+$40)" },
-    { id: "crust_no", title: "❌ No" },
-    { id: "cancelar", title: "⏹️ Cancelar" }
-  ]
-);
+const askCrust = () => buttons("🧀 *¿ORILLA DE QUESO?* (+$40)", [
+  { id: "crust_si", title: "✅ Sí (+$40)" },
+  { id: "crust_no", title: "❌ No" },
+  { id: "cancelar", title: "⏹️ Cancelar" }
+]);
 
-const askExtra = () => buttons(
-  "➕ *EXTRAS*\n\n" +
-  "¿Quieres agregar ingredientes extra?\n" +
-  "💰 *$15 c/u*",
-  [
-    { id: "extra_si", title: "✅ Sí" },
-    { id: "extra_no", title: "❌ No" },
-    { id: "cancelar", title: "⏹️ Cancelar" }
-  ]
-);
+const askExtra = () => buttons("➕ *¿AGREGAR EXTRA?* ($15 c/u)", [
+  { id: "extra_si", title: "✅ Sí" },
+  { id: "extra_no", title: "❌ No" },
+  { id: "cancelar", title: "⏹️ Cancelar" }
+]);
 
 const extrasAllowed = () =>
   ["pepperoni", "jamon", "jalapeno", "pina", "chorizo", "queso"];
 
-const extraList = () => list(
-  "➕ *ELIGE UN EXTRA* ($15)\n\nSelecciona un ingrediente:", [{
-    title: "EXTRAS DISPONIBLES",
-    rows: extrasAllowed().map(e => ({
-      id: e,
-      title: `• ${e.charAt(0).toUpperCase() + e.slice(1)}`,
-      description: "+$15"
-    }))
-  }]
-);
+const extraList = () => list("➕ *ELIGE UN EXTRA* ($15)", [{
+  title: "EXTRAS",
+  rows: extrasAllowed().map(e => ({
+    id: e,
+    title: `• ${e.charAt(0).toUpperCase() + e.slice(1)}`,
+    description: "+$15"
+  }))
+}]);
 
-const askMoreExtras = () => buttons(
-  "➕ *¿OTRO EXTRA?*\n\n¿Quieres agregar otro ingrediente?",
-  [
-    { id: "extra_si", title: "✅ Sí" },
-    { id: "extra_no", title: "❌ No" },
-    { id: "cancelar", title: "⏹️ Cancelar" }
-  ]
-);
+const askMoreExtras = () => buttons("➕ *¿OTRO EXTRA?*", [
+  { id: "extra_si", title: "✅ Sí" },
+  { id: "extra_no", title: "❌ No" },
+  { id: "cancelar", title: "⏹️ Cancelar" }
+]);
 
-const anotherPizza = () => buttons(
-  "🍕 *¿OTRA PIZZA?*\n\n¿Quieres agregar otra pizza a tu pedido?",
-  [
-    { id: "si", title: "✅ Sí" },
-    { id: "no", title: "❌ No" },
-    { id: "cancelar", title: "⏹️ Cancelar" }
-  ]
-);
+const anotherPizza = () => buttons("🍕 *¿OTRA PIZZA?*", [
+  { id: "si", title: "✅ Sí" },
+  { id: "no", title: "❌ No" },
+  { id: "cancelar", title: "⏹️ Cancelar" }
+]);
 
-const deliveryButtons = () => buttons(
-  "🚚 *MÉTODO DE ENTREGA*\n\n" +
-  "¿Cómo quieres recibir tu pedido?",
-  [
-    { id: "domicilio", title: "🏠 A domicilio (+$40)" },
-    { id: "recoger", title: "🏪 Recoger en tienda" },
-    { id: "cancelar", title: "⏹️ Cancelar" }
-  ]
-);
+const deliveryButtons = () => buttons("🚚 *MÉTODO DE ENTREGA*", [
+  { id: "domicilio", title: "🏠 A domicilio (+$40)" },
+  { id: "recoger", title: "🏪 Recoger en tienda" },
+  { id: "cancelar", title: "⏹️ Cancelar" }
+]);
 
 const stepName = (step) => {
   const names = {
     welcome: "Bienvenida",
     pizza_type: "Elegir pizza",
-    size: "Elegir tamaño",
+    size: "Tamaño",
     ask_cheese_crust: "Orilla de queso",
-    ask_extra: "Agregar extras",
+    ask_extra: "Extras",
     choose_extra: "Seleccionar extra",
     more_extras: "Otro extra",
     another_pizza: "Otra pizza",
-    delivery_method: "Método de entrega",
+    delivery_method: "Entrega",
     ask_address: "Dirección",
     ask_phone: "Teléfono",
     ask_pickup_name: "Nombre"
@@ -558,39 +548,17 @@ const stepName = (step) => {
 };
 
 const stepUI = (s) => {
-  console.log(`🔍 stepUI llamado para paso: ${s.step}`);
-  
   switch (s.step) {
-    case "welcome": 
-      console.log("✅ Devolviendo welcomeMessage");
-      return welcomeMessage();
-    case "pizza_type": 
-      console.log("✅ Devolviendo pizzaList");
-      return pizzaList();
-    case "size": 
-      console.log("✅ Devolviendo sizeButtons");
-      return sizeButtons(s.currentPizza?.type);
-    case "ask_cheese_crust": 
-      console.log("✅ Devolviendo askCrust");
-      return askCrust();
-    case "ask_extra": 
-      console.log("✅ Devolviendo askExtra");
-      return askExtra();
-    case "choose_extra": 
-      console.log("✅ Devolviendo extraList");
-      return extraList();
-    case "more_extras": 
-      console.log("✅ Devolviendo askMoreExtras");
-      return askMoreExtras();
-    case "another_pizza": 
-      console.log("✅ Devolviendo anotherPizza");
-      return anotherPizza();
-    case "delivery_method": 
-      console.log("✅ Devolviendo deliveryButtons");
-      return deliveryButtons();
-    default: 
-      console.log(`⚠️ Paso desconocido: ${s.step}, enviando welcomeMessage`);
-      return welcomeMessage();
+    case "welcome": return welcomeMessage();
+    case "pizza_type": return pizzaList();
+    case "size": return sizeButtons(s.currentPizza?.type);
+    case "ask_cheese_crust": return askCrust();
+    case "ask_extra": return askExtra();
+    case "choose_extra": return extraList();
+    case "more_extras": return askMoreExtras();
+    case "another_pizza": return anotherPizza();
+    case "delivery_method": return deliveryButtons();
+    default: return welcomeMessage();
   }
 };
 
@@ -672,8 +640,7 @@ const buildSummary = (s) => {
   text += `💰 *TOTAL: $${total} MXN*\n`;
   text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
   text += "✨ *¡Gracias por tu pedido!*\n";
-  text += "🕒 Tiempo estimado: 30-40 min\n\n";
-  text += "🍕 *Pizzería Villa* - Sabor que enamora";
+  text += "🍕 *Pizzería Villa*";
 
   return textMsg(text);
 };
@@ -731,5 +698,6 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Bot corriendo en puerto ${PORT}`);
   console.log(`📱 Número de la pizzería: ${BUSINESS_NUMBER}`);
-  console.log(`🔗 Webhook URL: https://tu-app.onrender.com/webhook`);
+  console.log(`🔗 Webhook URL: https://one-whatsapp-bot.onrender.com/webhook`);
+  console.log(`🧪 Test endpoint: https://one-whatsapp-bot.onrender.com/test-business`);
 });
