@@ -681,24 +681,25 @@ app.post("/webhook", async (req, res) => {
 
       // ===== CONFIRMACIÓN FINAL =====
       case "confirmacion_final":
-        if (input === "confirmar") {
-          if (s.pagoMetodo === "Transferencia") {
-            s.step = "ask_comprobante";
-            reply = textMsg(
-              "🧾 *PAGO CON TRANSFERENCIA*\n\n" +
-              "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
-              "📲 *DATOS PARA TRANSFERENCIA:*\n\n" +
-              `🏦 *Cuenta:* ${SUCURSALES[s.sucursal].mercadoPago.cuenta}\n` +
-              `👤 *Beneficiario:* ${SUCURSALES[s.sucursal].mercadoPago.beneficiario}\n` +
-              `💰 *Monto exacto:* $${s.totalTemp} MXN\n\n` +
-              "📝 *Importante:* Envía el comprobante con el monto exacto.\n\n" +
-              "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
-              "✅ *Envía la FOTO del comprobante* para confirmar tu pedido."
-            );
-          } else {
-            await finalizarPedido(s, from);
-            reply = null;
-          }
+  if (input === "confirmar") {
+    if (s.pagoMetodo === "Transferencia") {
+      s.step = "ask_comprobante";
+      reply = textMsg(
+        "🧾 *PAGO CON MERCADO PAGO*\n\n" +
+        "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
+        "📲 *DATOS PARA TRANSFERENCIA:*\n\n" +
+        `🏦 *Cuenta Mercado Pago:* ${SUCURSALES[s.sucursal].mercadoPago.cuenta}\n` + // 👈 CORREGIDO
+        `👤 *Beneficiario:* ${SUCURSALES[s.sucursal].mercadoPago.beneficiario}\n` +
+        `💰 *Monto exacto:* $${s.totalTemp} MXN\n\n` +
+        "📝 *Importante:* Envía el comprobante con el monto exacto.\n\n" +
+        "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
+        "✅ *Envía la FOTO del comprobante* para confirmar tu pedido."
+      );
+    } else {
+      await finalizarPedido(s, from);
+      reply = null;
+    }
+
         } else if (input === "cancelar") {
           delete sessions[from];
           reply = merge(
