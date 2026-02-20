@@ -122,7 +122,9 @@ const resetSession = (from) => {
     delivery: null,
     address: null,
     phone: null,
-    pickupName: null
+    pickupName: null,
+    pagoProcesado: false, // 🔥 NUEVO CAMPO PARA PROTECCIÓN
+    pagosProcesados: {}    // 🔥 REGISTRO DE PAGOS POR ID
   };
 };
 
@@ -200,6 +202,12 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
+      // Verificar que el pago no haya sido procesado ya
+      if (s.pagoProcesado) {
+        await sendMessage(from, textMsg("❌ *ERROR*\n\nEste pago ya fue procesado anteriormente."));
+        return res.sendStatus(200);
+      }
+      
       // Avisar al cliente
       await sendMessage(from, textMsg(
         "✅ *COMPROBANTE RECIBIDO*\n\n" +
@@ -226,6 +234,10 @@ app.post("/webhook", async (req, res) => {
         }
       }
       
+      // Generar ID único para este pago
+      const pagoId = `${from}_${s.sucursal}_${Date.now()}`;
+      s.pagoId = pagoId;
+      
       // Enviar imagen a la sucursal
       const caption = 
         "📎 *NUEVO COMPROBANTE DE PAGO*\n" +
@@ -243,9 +255,9 @@ app.post("/webhook", async (req, res) => {
         caption: caption
       });
       
-      console.log(`📤 Comprobante reenviado a sucursal ${sucursal.telefono}`);
+      console.log(`📤 Comprobante reenviado a sucursal ${sucursal.telefono} con ID ${pagoId}`);
       
-      // Botones para la sucursal
+      // Botones para la sucursal (con ID único)
       await sendMessage(sucursal.telefono, {
         type: "interactive",
         interactive: {
@@ -256,14 +268,14 @@ app.post("/webhook", async (req, res) => {
               { 
                 type: "reply", 
                 reply: { 
-                  id: `pago_ok_${from}_${s.sucursal}`, 
+                  id: `pago_ok_${pagoId}`, 
                   title: "✅ CONFIRMAR PAGO" 
                 } 
               },
               { 
                 type: "reply", 
                 reply: { 
-                  id: `pago_no_${from}_${s.sucursal}`, 
+                  id: `pago_no_${pagoId}`, 
                   title: "❌ RECHAZAR PAGO" 
                 } 
               }
@@ -278,59 +290,149 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
     
-    // 🔥 DETECTAR RESPUESTA DE SUCURSAL
+    // 🔥 DETECTAR RESPUESTA DE SUCURSAL - CON PROTECCIÓN MEJORADA
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
       
-      if (replyId.startsWith("pago_ok_")) {
+      // Solo procesar si es un ID de pago
+      if (replyId.startsWith("pago_ok_") || replyId.startsWith("pago_no_")) {
         const partes = replyId.split("_");
-        const cliente = partes[2];
-        const sucursalKey = partes[3];
+        const tipo = partes[1]; // ok o no
+        const pagoId = partes.slice(2).join("_"); // El resto es el ID único
+        
+        console.log(`🔍 Respuesta de pago recibida: ${tipo}, ID: ${pagoId}`);
+        
+        // Extraer cliente y sucursal del pagoId (formato: cliente_sucursal_timestamp)
+        const pagoPartes = pagoId.split("_");
+        const cliente = pagoPartes[0];
+        const sucursalKey = pagoPartes[1];
+        const timestamp = pagoPartes[2];
+        
         const sucursal = SUCURSALES[sucursalKey];
         
-        await sendMessage(cliente, textMsg(
-          "✅ *¡PAGO CONFIRMADO!* ✅\n\n" +
-          "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
-          `🏪 *${sucursal.emoji} ${sucursal.nombre}*\n\n` +
-          "Tu transferencia ha sido verificada correctamente.\n" +
-          "¡Tu pedido ya está en preparación! 🍕\n\n" +
-          "⏱️ *Tiempo estimado:* 30-40 minutos\n\n" +
-          "━━━━━━━━━━━━━━━━━━━━━━\n" +
-          "¡Gracias por tu preferencia! 🙌"
-        ));
+        // 🔥 PROTECCIÓN 1: Verificar que el cliente existe
+        if (!sessions[cliente]) {
+          console.log(`⚠️ Cliente ${cliente} no tiene sesión activa`);
+          await sendMessage(sucursal.telefono, 
+            textMsg("⚠️ *ERROR*\n\nEl cliente ya no tiene una sesión activa.")
+          );
+          return res.sendStatus(200);
+        }
         
-        await sendMessage(sucursal.telefono, 
-          textMsg(`✅ *PAGO CONFIRMADO*\n\nCliente: ${cliente}\nMonto: $${sessions[cliente]?.totalTemp || "---"}\n\nEl pedido ya puede prepararse.`)
-        );
+        const s = sessions[cliente];
         
-        return res.sendStatus(200);
-      }
-      
-      if (replyId.startsWith("pago_no_")) {
-        const partes = replyId.split("_");
-        const cliente = partes[2];
-        const sucursalKey = partes[3];
-        const sucursal = SUCURSALES[sucursalKey];
+        // 🔥 PROTECCIÓN 2: Verificar que el ID del pago coincide
+        if (s.pagoId !== pagoId) {
+          console.log(`⚠️ ID de pago no coincide. Esperado: ${s.pagoId}, Recibido: ${pagoId}`);
+          await sendMessage(sucursal.telefono, 
+            textMsg("⚠️ *ERROR*\n\nEste botón ya no es válido. El pago fue procesado con otro ID.")
+          );
+          return res.sendStatus(200);
+        }
         
-        await sendMessage(cliente, textMsg(
-          "❌ *PAGO RECHAZADO* ❌\n\n" +
-          "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
-          `🏪 *${sucursal.emoji} ${sucursal.nombre}*\n\n` +
-          "No pudimos verificar tu transferencia.\n\n" +
-          "Posibles causas:\n" +
-          "• El monto no coincide\n" +
-          "• La referencia es incorrecta\n" +
-          "• La imagen no es legible\n\n" +
-          "📞 *Contacta a la sucursal para asistencia:*\n" +
-          `${sucursal.telefono}\n\n` +
-          "━━━━━━━━━━━━━━━━━━━━━━"
-        ));
+        // 🔥 PROTECCIÓN 3: Verificar que el pago no fue procesado
+        if (s.pagoProcesado) {
+          console.log(`🛑 Pago ya procesado para cliente ${cliente}`);
+          await sendMessage(sucursal.telefono, 
+            textMsg("⚠️ *PAGO YA PROCESADO*\n\nEste pago ya fue confirmado/rechazado anteriormente.")
+          );
+          return res.sendStatus(200);
+        }
         
-        await sendMessage(sucursal.telefono, 
-          textMsg(`❌ *PAGO RECHAZADO*\n\nCliente: ${cliente}\nMonto: $${sessions[cliente]?.totalTemp || "---"}\n\nEl pedido NO será preparado.`)
-        );
+        // 🔥 PROTECCIÓN 4: Verificar que el monto es válido
+        if (!s.totalTemp || s.totalTemp <= 0) {
+          console.log(`⚠️ Monto inválido para cliente ${cliente}: ${s.totalTemp}`);
+          await sendMessage(sucursal.telefono, 
+            textMsg("⚠️ *ERROR*\n\nNo hay información de monto válida para este pedido.")
+          );
+          return res.sendStatus(200);
+        }
         
-        return res.sendStatus(200);
+        // 🔥 PROTECCIÓN 5: Registrar en el historial de pagos procesados
+        const pagoKey = `${cliente}_${timestamp}`;
+        if (s.pagosProcesados && s.pagosProcesados[pagoKey]) {
+          console.log(`🛑 Pago ${pagoKey} ya fue procesado (historial)`);
+          await sendMessage(sucursal.telefono, 
+            textMsg("⚠️ *PAGO DUPLICADO*\n\nEste pago ya fue procesado anteriormente.")
+          );
+          return res.sendStatus(200);
+        }
+        
+        if (!s.pagosProcesados) s.pagosProcesados = {};
+        s.pagosProcesados[pagoKey] = {
+          estado: tipo,
+          timestamp: Date.now()
+        };
+        
+        // Marcar como procesado
+        s.pagoProcesado = true;
+        
+        if (tipo === "ok") {
+          console.log(`✅ Confirmando pago para cliente ${cliente}`);
+          
+          // Enviar confirmación al cliente
+          await sendMessage(cliente, textMsg(
+            "✅ *¡PAGO CONFIRMADO!* ✅\n\n" +
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+            `🏪 *${sucursal.emoji} ${sucursal.nombre}*\n\n` +
+            "Tu transferencia ha sido verificada correctamente.\n" +
+            "¡Tu pedido ya está en preparación! 🍕\n\n" +
+            "⏱️ *Tiempo estimado:* 30-40 minutos\n\n" +
+            "━━━━━━━━━━━━━━━━━━━━━━\n" +
+            "¡Gracias por tu preferencia! 🙌"
+          ));
+          
+          // Notificar a la sucursal
+          await sendMessage(sucursal.telefono, 
+            textMsg(
+              "━━━━━━━━━━━━━━━━━━━━━━\n" +
+              "✅ *PAGO CONFIRMADO* ✅\n" +
+              "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+              `👤 *Cliente:* ${cliente}\n` +
+              `💰 *Monto:* $${s.totalTemp} MXN\n` +
+              `🕒 *Hora:* ${new Date().toLocaleString('es-MX')}\n\n` +
+              "El pedido ya puede prepararse.\n" +
+              "━━━━━━━━━━━━━━━━━━━━━━"
+            )
+          );
+          
+          return res.sendStatus(200);
+        }
+        
+        if (tipo === "no") {
+          console.log(`❌ Rechazando pago para cliente ${cliente}`);
+          
+          // Notificar al cliente
+          await sendMessage(cliente, textMsg(
+            "❌ *PAGO RECHAZADO* ❌\n\n" +
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+            `🏪 *${sucursal.emoji} ${sucursal.nombre}*\n\n` +
+            "No pudimos verificar tu transferencia.\n\n" +
+            "Posibles causas:\n" +
+            "• El monto no coincide\n" +
+            "• La referencia es incorrecta\n" +
+            "• La imagen no es legible\n\n" +
+            "📞 *Contacta a la sucursal para asistencia:*\n" +
+            `${sucursal.telefono}\n\n` +
+            "━━━━━━━━━━━━━━━━━━━━━━"
+          ));
+          
+          // Notificar a la sucursal
+          await sendMessage(sucursal.telefono, 
+            textMsg(
+              "━━━━━━━━━━━━━━━━━━━━━━\n" +
+              "❌ *PAGO RECHAZADO* ❌\n" +
+              "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+              `👤 *Cliente:* ${cliente}\n` +
+              `💰 *Monto:* $${s.totalTemp} MXN\n` +
+              `🕒 *Hora:* ${new Date().toLocaleString('es-MX')}\n\n` +
+              "El pedido NO será preparado.\n" +
+              "━━━━━━━━━━━━━━━━━━━━━━"
+            )
+          );
+          
+          return res.sendStatus(200);
+        }
       }
     }
 
@@ -388,7 +490,7 @@ app.post("/webhook", async (req, res) => {
     let reply = null;
 
     // =======================
-    // 🎯 FLUJO PRINCIPAL MEJORADO
+    // 🎯 FLUJO PRINCIPAL
     // =======================
     switch (s.step) {
 
@@ -592,7 +694,7 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== MÉTODO DE PAGO (OPCIONES NORMALES) =====
+      // ===== MÉTODO DE PAGO =====
       case "ask_payment":
         if (s.pagoForzado) {
           if (input !== "pago_transferencia") {
@@ -681,25 +783,24 @@ app.post("/webhook", async (req, res) => {
 
       // ===== CONFIRMACIÓN FINAL =====
       case "confirmacion_final":
-  if (input === "confirmar") {
-    if (s.pagoMetodo === "Transferencia") {
-      s.step = "ask_comprobante";
-      reply = textMsg(
-        "🧾 *PAGO CON MERCADO PAGO*\n\n" +
-        "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
-        "📲 *DATOS PARA TRANSFERENCIA:*\n\n" +
-        `🏦 *Cuenta Mercado Pago:* ${SUCURSALES[s.sucursal].mercadoPago.cuenta}\n` + // 👈 CORREGIDO
-        `👤 *Beneficiario:* ${SUCURSALES[s.sucursal].mercadoPago.beneficiario}\n` +
-        `💰 *Monto exacto:* $${s.totalTemp} MXN\n\n` +
-        "📝 *Importante:* Envía el comprobante con el monto exacto.\n\n" +
-        "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
-        "✅ *Envía la FOTO del comprobante* para confirmar tu pedido."
-      );
-    } else {
-      await finalizarPedido(s, from);
-      reply = null;
-    }
-
+        if (input === "confirmar") {
+          if (s.pagoMetodo === "Transferencia") {
+            s.step = "ask_comprobante";
+            reply = textMsg(
+              "🧾 *PAGO CON MERCADO PAGO*\n\n" +
+              "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
+              "📲 *DATOS PARA TRANSFERENCIA:*\n\n" +
+              `🏦 *Cuenta Mercado Pago:* ${SUCURSALES[s.sucursal].mercadoPago.cuenta}\n` +
+              `👤 *Beneficiario:* ${SUCURSALES[s.sucursal].mercadoPago.beneficiario}\n` +
+              `💰 *Monto exacto:* $${s.totalTemp} MXN\n\n` +
+              "📝 *Importante:* Envía el comprobante con el monto exacto.\n\n" +
+              "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
+              "✅ *Envía la FOTO del comprobante* para confirmar tu pedido."
+            );
+          } else {
+            await finalizarPedido(s, from);
+            reply = null;
+          }
         } else if (input === "cancelar") {
           delete sessions[from];
           reply = merge(
@@ -950,7 +1051,6 @@ const paymentOptions = (s) => {
   return buttons(texto, opciones);
 };
 
-// ===== 🔥 FUNCIÓN CORREGIDA (VERSIÓN DISCRETA) =====
 const paymentForzadoMessage = (s) => {
   const texto = 
     "━━━━━━━━━━━━━━━━━━━━━━\n" +
@@ -1253,7 +1353,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot multisucursal V4 corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot multisucursal V5 (Protección Total) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
