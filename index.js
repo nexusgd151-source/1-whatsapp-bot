@@ -13,14 +13,7 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 // =======================
 const SESSION_TIMEOUT = 5 * 60 * 1000;
 const BUSINESS_NUMBER = "5216391759607";
-const UMBRAL_TRANSFERENCIA = 450; // 🔥 Pedidos >= $450 solo transferencia
-
-// 🔥 HORARIOS
-const HORARIO = {
-  abierto: { hora: 11, minuto: 0 },  // 11:00 AM
-  cerrado: { hora: 21, minuto: 0 },   // 9:00 PM
-  diasCerrados: [2] // 0=Domingo, 1=Lunes, 2=MARTES, 3=Miércoles...
-};
+const UMBRAL_TRANSFERENCIA = 450;
 
 const PRICES = {
   pepperoni: { grande: 130, extragrande: 180 },
@@ -53,41 +46,20 @@ const resetSession = (from) => {
     lastAction: now(),
     lastInput: null,
     clientNumber: from,
-    pendingConfirmation: false, // 🔥 Para confirmación final
+    pendingConfirmation: false,
     pagoForzado: false,
     totalTemp: 0,
-    comprobanteEnviado: false
+    comprobanteEnviado: false,
+    pagoMetodo: null,
+    delivery: null,
+    address: null,
+    phone: null,
+    pickupName: null
   };
 };
 
 const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
-
-// =======================
-// 🔥 VERIFICAR HORARIO
-// =======================
-const checkHorario = () => {
-  const ahora = new Date();
-  const dia = ahora.getDay(); // 0=Domingo, 1=Lunes, 2=Martes...
-  const hora = ahora.getHours();
-  const minutos = ahora.getMinutes();
-  
-  // Verificar si es martes (día cerrado)
-  if (HORARIO.diasCerrados.includes(dia)) {
-    return { abierto: false, razon: "cerrado_todo_el_dia" };
-  }
-  
-  // Convertir a minutos desde medianoche
-  const minutosActuales = hora * 60 + minutos;
-  const minutosApertura = HORARIO.abierto.hora * 60 + HORARIO.abierto.minuto;
-  const minutosCierre = HORARIO.cerrado.hora * 60 + HORARIO.cerrado.minuto;
-  
-  if (minutosActuales >= minutosApertura && minutosActuales < minutosCierre) {
-    return { abierto: true };
-  } else {
-    return { abierto: false, razon: "fuera_horario" };
-  }
-};
 
 // =======================
 // WEBHOOK - GET
@@ -109,8 +81,11 @@ app.get("/webhook", (req, res) => {
 // =======================
 app.get("/test-business", async (req, res) => {
   try {
-    await sendMessage(BUSINESS_NUMBER, { type: "text", text: { body: "🧪 Prueba" } });
-    res.send("✅ OK");
+    await sendMessage(BUSINESS_NUMBER, { 
+      type: "text", 
+      text: { body: "🧪 *PRUEBA*\n\nSi ves esto, el bot puede enviar mensajes a la pizzería." } 
+    });
+    res.send("✅ Mensaje enviado a la pizzería");
   } catch (error) {
     res.send(`❌ Error: ${error.message}`);
   }
@@ -123,26 +98,91 @@ app.post("/webhook", async (req, res) => {
   try {
     console.log("📩 Webhook POST recibido");
     
-    // 🔥 VERIFICAR HORARIO AL INICIO
-    const horario = checkHorario();
-    
     const value = req.body.entry?.[0]?.changes?.[0]?.value;
     if (!value?.messages) return res.sendStatus(200);
 
     const msg = value.messages[0];
     const from = msg.from;
 
-    // Si es mensaje de ubicación
-    if (msg.type === "location") {
-      const ubicacion = `📍 *UBICACIÓN RECIBIDA*\n\nLat: ${msg.location.latitude}\nLng: ${msg.location.longitude}`;
-      await sendMessage(from, textMsg(ubicacion));
+    // 🔥 DETECTAR SI ES IMAGEN (COMPROBANTE)
+    if (msg.type === "image") {
+      console.log(`📸 Cliente ${from} envió comprobante`);
       
-      if (sessions[from]) {
-        sessions[from].address = `https://maps.google.com/?q=${msg.location.latitude},${msg.location.longitude}`;
-        sessions[from].step = "ask_phone";
-        await sendMessage(from, textMsg("📞 *TELÉFONO*\n\nEscribe tu número:"));
+      if (!sessions[from]) {
+        await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
+        return res.sendStatus(200);
       }
+      
+      const s = sessions[from];
+      
+      // 1. Avisar al cliente
+      await sendMessage(from, textMsg("✅ *COMPROBANTE RECIBIDO*\n\nTu pago está siendo verificado. Te confirmaremos en unos minutos."));
+      
+      // 2. 🔥 REENVIAR LA IMAGEN A LA PIZZERÍA 🔥
+      await sendMessage(BUSINESS_NUMBER, {
+        type: "image",
+        image: { id: msg.image.id },
+        caption: `📎 *COMPROBANTE DE PAGO*\n\n👤 *Cliente:* ${from}\n💰 *Monto:* $${s.totalTemp}\n🕒 *Hora:* ${new Date().toLocaleString('es-MX')}\n\n✅ *Esperando confirmación*`
+      });
+      
+      // 3. Enviar botones a la pizzería para confirmar
+      await sendMessage(BUSINESS_NUMBER, {
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: `¿Confirmar pago de ${from} por $${s.totalTemp}?` },
+          action: {
+            buttons: [
+              { 
+                type: "reply", 
+                reply: { 
+                  id: `pago_ok_${from}`, 
+                  title: "✅ Sí, pagó" 
+                } 
+              },
+              { 
+                type: "reply", 
+                reply: { 
+                  id: `pago_no_${from}`, 
+                  title: "❌ No, rechazar" 
+                } 
+              }
+            ]
+          }
+        }
+      });
+      
+      s.comprobanteEnviado = true;
+      s.step = "esperando_confirmacion";
+      
       return res.sendStatus(200);
+    }
+    
+    // 🔥 DETECTAR RESPUESTA DE LA PIZZERÍA (CONFIRMAR/RECHAZAR PAGO)
+    if (msg.type === "interactive" && msg.interactive?.button_reply) {
+      const replyId = msg.interactive.button_reply.id;
+      
+      if (replyId.startsWith("pago_ok_")) {
+        const cliente = replyId.replace("pago_ok_", "");
+        await sendMessage(cliente, textMsg(
+          "✅ *PAGO CONFIRMADO*\n\n" +
+          "Tu transferencia ha sido verificada.\n" +
+          "¡Tu pedido ya está en preparación! 🍕"
+        ));
+        await sendMessage(BUSINESS_NUMBER, textMsg(`✅ Pago confirmado para cliente ${cliente}`));
+        return res.sendStatus(200);
+      }
+      
+      if (replyId.startsWith("pago_no_")) {
+        const cliente = replyId.replace("pago_no_", "");
+        await sendMessage(cliente, textMsg(
+          "❌ *PAGO RECHAZADO*\n\n" +
+          "No pudimos verificar tu transferencia.\n" +
+          "Contacta a la pizzería para más información."
+        ));
+        await sendMessage(BUSINESS_NUMBER, textMsg(`❌ Pago rechazado para cliente ${cliente}`));
+        return res.sendStatus(200);
+      }
     }
 
     const rawText = msg.text?.body;
@@ -151,18 +191,6 @@ app.post("/webhook", async (req, res) => {
       msg.interactive?.list_reply?.id;
 
     if (input) input = normalize(input);
-
-    // 🔥 BLOQUEAR SI ESTÁ CERRADO (excepto si ya tiene sesión)
-    if (!sessions[from] && !horario.abierto) {
-      let mensaje = "🕒 *FUERA DE HORARIO*\n\n";
-      if (horario.razon === "cerrado_todo_el_dia") {
-        mensaje += "Hoy es MARTES, estamos CERRADOS.\n\n";
-      } else {
-        mensaje += `Nuestro horario es:\nLunes a Domingo: 11:00 AM - 9:00 PM\n(Martes cerrado)`;
-      }
-      await sendMessage(from, textMsg(mensaje));
-      return res.sendStatus(200);
-    }
 
     if (!sessions[from] || isExpired(sessions[from])) {
       resetSession(from);
@@ -295,8 +323,6 @@ app.post("/webhook", async (req, res) => {
       case "delivery_method":
         if (input === "domicilio") {
           s.delivery = true;
-          
-          // Calcular total para verificar umbral
           s.totalTemp = calcularTotal(s);
           
           if (s.totalTemp >= UMBRAL_TRANSFERENCIA) {
@@ -317,7 +343,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // 🔥 PASO DE PAGO
       case "ask_payment":
         if (s.pagoForzado) {
           if (input !== "pago_transferencia") {
@@ -340,24 +365,11 @@ app.post("/webhook", async (req, res) => {
         }
         
         if (s.delivery) {
-          s.step = "ask_location_or_address";
-          reply = locationOrAddress();
+          s.step = "ask_address";
+          reply = textMsg("📍 *DIRECCIÓN*\n\nEscribe tu dirección completa:");
         } else {
           s.step = "ask_pickup_name";
           reply = textMsg("🏪 *RECOGER*\n\nEscribe el nombre de quien recoge:");
-        }
-        break;
-
-      // 🔥 NUEVO: ELEGIR UBICACIÓN O DIRECCIÓN
-      case "ask_location_or_address":
-        if (input === "ubicacion") {
-          s.step = "ask_location";
-          reply = textMsg("📍 *COMPARTE UBICACIÓN*\n\nPresiona el clip 📎 → Ubicación");
-        } else if (input === "direccion") {
-          s.step = "ask_address";
-          reply = textMsg("📝 *DIRECCIÓN*\n\nEscribe tu dirección completa:");
-        } else {
-          reply = merge(textMsg("❌ Opción no válida"), locationOrAddress());
         }
         break;
 
@@ -377,8 +389,6 @@ app.post("/webhook", async (req, res) => {
           break;
         }
         s.phone = rawText;
-        
-        // 🔥 CONFIRMACIÓN FINAL
         s.step = "confirmacion_final";
         reply = confirmacionFinal(s);
         break;
@@ -389,53 +399,42 @@ app.post("/webhook", async (req, res) => {
           break;
         }
         s.pickupName = rawText;
-        
-        // 🔥 CONFIRMACIÓN FINAL
         s.step = "confirmacion_final";
         reply = confirmacionFinal(s);
         break;
 
-      // 🔥 CONFIRMACIÓN FINAL
       case "confirmacion_final":
         if (input === "confirmar") {
-          // Si pago es transferencia, pedir comprobante
           if (s.pagoMetodo === "Transferencia") {
             s.step = "ask_comprobante";
             reply = textMsg(
               "🧾 *COMPROBANTE DE PAGO*\n\n" +
-              "📲 Datos para transferencia:\n" +
+              "📲 *Datos para transferencia:*\n" +
               "🏦 Banco: BBVA\n" +
               "👤 Titular: Pizzería Villa\n" +
               "💰 Cuenta: 1234 5678 9012 3456\n" +
               "📝 Referencia: PED-" + Date.now().toString().slice(-6) + "\n\n" +
-              "✅ *Envíanos la foto del comprobante* cuando hayas pagado."
+              "✅ *Envía la FOTO del comprobante* para confirmar tu pedido."
             );
           } else {
-            // Efectivo: enviar pedido directo
             await finalizarPedido(s, from);
             reply = null;
           }
         } else if (input === "cancelar") {
           delete sessions[from];
-          reply = merge(
-            textMsg("❌ Pedido cancelado."),
-            welcomeMessage()
-          );
+          reply = merge(textMsg("❌ Pedido cancelado."), welcomeMessage());
         } else {
           reply = merge(textMsg("❌ Opción no válida"), confirmacionFinal(s));
         }
         break;
 
-      // 🔥 RECIBIR COMPROBANTE
       case "ask_comprobante":
-        if (msg.type === "image" || msg.type === "document") {
-          // Tiene imagen = comprobante válido
-          await sendMessage(from, textMsg("✅ *COMPROBANTE RECIBIDO*\n\nProcesando pedido..."));
-          await finalizarPedido(s, from);
-          reply = null;
-        } else {
-          reply = textMsg("⚠️ *ENVÍA LA IMAGEN DEL COMPROBANTE*\n\nPresiona clip 📎 → Imagen");
-        }
+        // Si llegó aquí sin imagen, recordarle
+        reply = textMsg("📸 *ENVÍA LA FOTO DEL COMPROBANTE*\n\nPresiona el clip 📎 y selecciona la imagen.");
+        break;
+
+      case "esperando_confirmacion":
+        reply = textMsg("⏳ *PAGO EN VERIFICACIÓN*\n\nYa recibimos tu comprobante. Te confirmaremos en unos minutos.");
         break;
     }
 
@@ -449,7 +448,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🔥 FUNCIONES DE PAGO Y CONFIRMACIÓN
+// FUNCIONES DE APOYO
 // =======================
 const calcularTotal = (s) => {
   let total = 0;
@@ -476,12 +475,6 @@ const paymentForzadoMessage = (total) => buttons(
   ]
 );
 
-const locationOrAddress = () => buttons("📍 *¿CÓMO QUIERES DAR TU UBICACIÓN?*", [
-  { id: "ubicacion", title: "📍 Compartir ubicación" },
-  { id: "direccion", title: "📝 Escribir dirección" },
-  { id: "cancelar", title: "❌ Cancelar" }
-]);
-
 const confirmacionFinal = (s) => {
   const total = calcularTotal(s);
   let resumen = "📋 *CONFIRMA TU PEDIDO*\n\n";
@@ -495,9 +488,10 @@ const confirmacionFinal = (s) => {
     if (p.extras?.length) {
       resumen += `   • ➕ Extras: ${p.extras.join(", ")}\n`;
     }
+    resumen += "\n";
   });
   
-  resumen += "\n━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
+  resumen += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
   resumen += `💰 *TOTAL: $${total}*\n`;
   resumen += `💳 *PAGO: ${s.pagoMetodo}*\n`;
   resumen += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
@@ -510,26 +504,21 @@ const confirmacionFinal = (s) => {
 };
 
 const finalizarPedido = async (s, from) => {
-  const total = calcularTotal(s);
   const resumenCliente = buildSummary(s);
   const resumenNegocio = buildBusinessSummary(s);
   
   await sendMessage(from, resumenCliente);
   await sendMessage(BUSINESS_NUMBER, resumenNegocio);
   
-  if (s.pagoMetodo === "Transferencia") {
-    await sendMessage(from, textMsg(
-      "✅ *PEDIDO CONFIRMADO*\n\n" +
-      "Tu pago está siendo verificado.\n" +
-      "Te confirmaremos por este medio."
-    ));
+  if (s.pagoMetodo === "Efectivo") {
+    await sendMessage(BUSINESS_NUMBER, textMsg(`💵 *PAGO EN EFECTIVO*\n\nCliente: ${from}\nTotal: $${s.totalTemp}`));
   }
   
   delete sessions[from];
 };
 
 // =======================
-// FUNCIÓN PARA RESUMEN DEL NEGOCIO
+// RESUMENES
 // =======================
 const buildBusinessSummary = (s) => {
   let total = 0;
@@ -566,7 +555,7 @@ const buildBusinessSummary = (s) => {
     total += PRICES.envio;
     text += `🚚 *ENTREGA*: A domicilio\n`;
     text += `   • Envío: +$${PRICES.envio}\n`;
-    text += `   • 📍 ${s.address || "Compartió ubicación"}\n`;
+    text += `   • 📍 ${s.address}\n`;
     text += `   • 📞 ${s.phone}\n\n`;
   } else {
     text += `🏪 *ENTREGA*: Recoger en tienda\n`;
@@ -585,6 +574,55 @@ const buildBusinessSummary = (s) => {
   text += "✨ *Prepáralo con amor* ✨";
 
   return { type: "text", text: { body: text } };
+};
+
+const buildSummary = (s) => {
+  let total = 0;
+  let text = "✅ *¡PEDIDO CONFIRMADO!* ✅\n\n";
+  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
+
+  s.pizzas.forEach((p, i) => {
+    const pizzaPrice = PRICES[p.type][p.size];
+    total += pizzaPrice;
+    
+    text += `🍕 *PIZZA ${i + 1}*\n`;
+    text += `   • ${p.type.replace("_", " ")}\n`;
+    text += `   • ${p.size === "grande" ? "Grande" : "Extra grande"}\n`;
+    text += `   • Base: $${pizzaPrice}\n`;
+    
+    if (p.crust) {
+      total += PRICES.orilla_queso;
+      text += `   • 🧀 Orilla de queso: +$${PRICES.orilla_queso}\n`;
+    }
+    
+    if (p.extras?.length) {
+      const extrasTotal = p.extras.length * PRICES.extra;
+      total += extrasTotal;
+      text += `   • ➕ Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
+    }
+    text += "\n";
+  });
+
+  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
+
+  if (s.delivery) {
+    total += PRICES.envio;
+    text += `🚚 *ENTREGA*: A domicilio\n`;
+    text += `   • Envío: +$${PRICES.envio}\n`;
+    text += `   • 📍 ${s.address}\n`;
+    text += `   • 📞 ${s.phone}\n\n`;
+  } else {
+    text += `🏪 *ENTREGA*: Recoger en tienda\n`;
+    text += `   • 🙋 Nombre: ${s.pickupName}\n\n`;
+  }
+
+  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
+  text += `💰 *TOTAL: $${total} MXN*\n`;
+  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
+  text += "✨ *¡Gracias por tu pedido!*\n";
+  text += "🍕 *Pizzería Villa*";
+
+  return textMsg(text);
 };
 
 // =======================
@@ -607,9 +645,7 @@ const menuText = () => textMsg(
   "🍕 Mexicana: $200 / $250\n\n" +
   "🧀 Orilla de queso: +$40\n" +
   "➕ Extras: $15 c/u\n" +
-  "🚚 Envío: $40\n\n" +
-  "🕒 *Horario:* 11am - 9pm\n" +
-  "❌ *Martes cerrado*"
+  "🚚 Envío: $40"
 );
 
 const pizzaList = () => list("🍕 *ELIGE TU PIZZA*", [{
@@ -686,7 +722,6 @@ const stepUI = (s) => {
     case "another_pizza": return anotherPizza();
     case "delivery_method": return deliveryButtons();
     case "ask_payment": return s.pagoForzado ? paymentForzadoMessage(s.totalTemp) : paymentOptions();
-    case "ask_location_or_address": return locationOrAddress();
     default: return welcomeMessage();
   }
 };
@@ -723,62 +758,12 @@ const list = (text, sections) => ({
   }
 });
 
-const buildSummary = (s) => {
-  let total = 0;
-  let text = "✅ *¡PEDIDO CONFIRMADO!* ✅\n\n";
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
-
-  s.pizzas.forEach((p, i) => {
-    const pizzaPrice = PRICES[p.type][p.size];
-    total += pizzaPrice;
-    
-    text += `🍕 *PIZZA ${i + 1}*\n`;
-    text += `   • ${p.type.replace("_", " ")}\n`;
-    text += `   • ${p.size === "grande" ? "Grande" : "Extra grande"}\n`;
-    text += `   • Base: $${pizzaPrice}\n`;
-    
-    if (p.crust) {
-      total += PRICES.orilla_queso;
-      text += `   • 🧀 Orilla de queso: +$${PRICES.orilla_queso}\n`;
-    }
-    
-    if (p.extras?.length) {
-      const extrasTotal = p.extras.length * PRICES.extra;
-      total += extrasTotal;
-      text += `   • ➕ Extras: ${p.extras.map(e => 
-        e.charAt(0).toUpperCase() + e.slice(1)
-      ).join(", ")} (+$${extrasTotal})\n`;
-    }
-    text += "\n";
-  });
-
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
-
-  if (s.delivery) {
-    total += PRICES.envio;
-    text += `🚚 *ENTREGA*: A domicilio\n`;
-    text += `   • Envío: +$${PRICES.envio}\n`;
-    text += `   • 📍 ${s.address || "Ubicación compartida"}\n`;
-    text += `   • 📞 ${s.phone}\n\n`;
-  } else {
-    text += `🏪 *ENTREGA*: Recoger en tienda\n`;
-    text += `   • 🙋 Nombre: ${s.pickupName}\n\n`;
-  }
-
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
-  text += `💰 *TOTAL: $${total} MXN*\n`;
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
-  text += "✨ *¡Gracias por tu pedido!*\n";
-  text += "🍕 *Pizzería Villa*";
-
-  return textMsg(text);
-};
-
 async function sendMessage(to, payload) {
   try {
     const msgs = Array.isArray(payload) ? payload : [payload];
     for (const m of msgs) {
-      await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
+      console.log(`📤 Enviando a ${to}:`, JSON.stringify(m).substring(0, 200) + "...");
+      const response = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${WHATSAPP_TOKEN}`,
@@ -791,6 +776,11 @@ async function sendMessage(to, payload) {
           ...m
         })
       });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        console.error("❌ Error WhatsApp API:", error);
+      }
     }
   } catch (error) {
     console.error("❌ Error sendMessage:", error);
@@ -817,6 +807,6 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Bot corriendo en puerto ${PORT}`);
   console.log(`📱 Número pizzería: ${BUSINESS_NUMBER}`);
-  console.log(`🕒 Horario: 11am-9pm (Martes CERRADO)`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
+  console.log(`🔗 Test: https://one-whatsapp-bot.onrender.com/test-business`);
 });
