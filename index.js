@@ -14,11 +14,11 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const SUCURSALES = {
   revolucion: {
     nombre: "VILLA REVOLUCIÓN",
-    direccion: "Av. Revolución #123, Col. Centro",
+    direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🌋",
     telefono: "5216391759607",
     domicilio: false,
-    horario: "Lun-Dom 11am-9pm",
+    horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
       cuenta: "722969010279408583",
       beneficiario: "Gabriel Jair Serrato Betance"
@@ -26,11 +26,11 @@ const SUCURSALES = {
   },
   obrera: {
     nombre: "VILLA LA OBRERA",
-    direccion: "Calle Obrera #456, Col. Industrial",
+    direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏭",
     telefono: "5216391307561",
     domicilio: true,
-    horario: "Lun-Dom 11am-9pm",
+    horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
       cuenta: "722969010279408583",
       beneficiario: "Gabriel Jair Serrato Betance"
@@ -46,28 +46,24 @@ const PRICES = {
     nombre: "Pepperoni", 
     grande: 130, 
     extragrande: 180,
-    descripcion: "La clásica, salsa de tomate y pepperoni",
     emoji: "🍕"
   },
   carnes_frias: { 
     nombre: "Carnes Frías", 
     grande: 170, 
     extragrande: 220,
-    descripcion: "Jamón, salchicha, pepperoni y chorizo",
     emoji: "🥩"
   },
   hawaiana: { 
     nombre: "Hawaiana", 
     grande: 150, 
     extragrande: 210,
-    descripcion: "Jamón y piña, dulce y salado",
     emoji: "🍍"
   },
   mexicana: { 
     nombre: "Mexicana", 
     grande: 200, 
     extragrande: 250,
-    descripcion: "Chorizo, jalapeño, cebolla y frijoles",
     emoji: "🌶️"
   },
   orilla_queso: {
@@ -744,11 +740,8 @@ const welcomeMessage = (s) => {
   const suc = SUCURSALES[s.sucursal];
   const texto = 
     "━━━━━━━━━━━━━━━━━━━━━━\n" +
-    `${suc.emoji} *${suc.nombre}* ${suc.emoji}\n` +
+    `🍕 *BIENVENIDO A ${suc.nombre}* 🍕\n` +
     "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
-    `📍 ${suc.direccion}\n` +
-    `🕒 ${suc.horario}\n\n` +
-    "🍕 *¡La mejor pizza de la colonia!*\n\n" +
     "¿Qué deseas hacer hoy?";
   
   return buttons(texto, [
@@ -774,6 +767,9 @@ const menuText = (s) => {
     "▸ Ingrediente extra: +$15 c/u\n\n" +
     "🚚 *ENVÍO*\n" +
     "▸ A domicilio: +$40\n\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    `📍 *DIRECCIÓN:*\n${suc.direccion}\n\n` +
+    `🕒 *HORARIO:* ${suc.horario}\n` +
     "━━━━━━━━━━━━━━━━━━━━━━";
   
   return textMsg(texto);
@@ -793,7 +789,7 @@ const pizzaList = () => {
       .map(p => ({
         id: p,
         title: `${PRICES[p].emoji} ${PRICES[p].nombre}`,
-        description: `${PRICES[p].descripcion} - G $${PRICES[p].grande} | EG $${PRICES[p].extragrande}`
+        description: `G $${PRICES[p].grande} | EG $${PRICES[p].extragrande}`
       }))
   }]);
 };
@@ -819,7 +815,6 @@ const askCrust = () => {
     "🧀 *ORILLA DE QUESO* 🧀\n" +
     "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
     "¿Quieres orilla de queso?\n" +
-    "✔️ Queso derretido en la orilla\n" +
     `💰 *+$${PRICES.orilla_queso.precio}*`;
   
   return buttons(texto, [
@@ -902,7 +897,8 @@ const deliveryButtons = (s) => {
   
   const texto = 
     "━━━━━━━━━━━━━━━━━━━━━━\n" +
-    `🚚 *MÉTODO DE ENTREGA - ${suc.emoji} ${suc.nombre}* 🚚\n` +
+    `🚚 *MÉTODO DE ENTREGA* 🚚\n` +
+    `   ${suc.emoji} ${suc.nombre}\n` +
     "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
     "¿Cómo quieres recibir tu pedido?";
   
@@ -1229,7 +1225,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot multisucursal V2 corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot multisucursal V3 corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
