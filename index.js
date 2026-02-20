@@ -9,6 +9,7 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // =======================
+// =======================
 // 🏪 CONFIGURACIÓN DE SUCURSALES
 // =======================
 const SUCURSALES = {
@@ -16,7 +17,7 @@ const SUCURSALES = {
     nombre: "VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🌋",
-    telefono: "5216391759607",
+    telefono: "5216391946965", // 🔥 NUEVO NÚMERO PARA REVOLUCIÓN
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -28,7 +29,7 @@ const SUCURSALES = {
     nombre: "VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏭",
-    telefono: "5216391307561",
+    telefono: "5216391759607", // 🔥 NÚMERO DE LA OBRERA
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
