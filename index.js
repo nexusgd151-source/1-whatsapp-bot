@@ -380,7 +380,7 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== BIENVENIDA PERSONALIZADA =====
+      // ===== BIENVENIDA PERSONALIZADA (CORREGIDA) =====
       case "welcome":
         if (input === "pedido") {
           s.step = "pizza_type";
@@ -717,7 +717,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI MEJORADAS
+// 🎨 FUNCIONES UI MEJORADAS (CON BIENVENIDA CORREGIDA)
 // =======================
 
 const seleccionarSucursal = () => {
@@ -736,11 +736,13 @@ const seleccionarSucursal = () => {
   ]);
 };
 
+// ===== 🔥 FUNCIÓN CORREGIDA - BIENVENIDA =====
 const welcomeMessage = (s) => {
   const suc = SUCURSALES[s.sucursal];
+  const nombreSucursal = s.sucursal === "revolucion" ? "Revolución" : "Obrera";
   const texto = 
     "━━━━━━━━━━━━━━━━━━━━━━\n" +
-    `🍕 *BIENVENIDO A ${suc.nombre}* 🍕\n` +
+    `🍕 *BIENVENIDO A LAS PIZZAS DE VILLA ${nombreSucursal.toUpperCase()}* 🍕\n` +
     "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
     "¿Qué deseas hacer hoy?";
   
