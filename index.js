@@ -14,8 +14,11 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const SUCURSALES = {
   revolucion: {
     nombre: "VILLA REVOLUCIÓN",
-    telefono: "5216391759607", // 🔥 Número de Revolución
-    domicilio: false, // ❌ No tiene servicio a domicilio
+    direccion: "Av. Revolución #123, Col. Centro",
+    emoji: "🌋",
+    telefono: "5216391759607",
+    domicilio: false,
+    horario: "Lun-Dom 11am-9pm",
     mercadoPago: {
       cuenta: "722969010279408583",
       beneficiario: "Gabriel Jair Serrato Betance"
@@ -23,10 +26,13 @@ const SUCURSALES = {
   },
   obrera: {
     nombre: "VILLA LA OBRERA",
-    telefono: "5216391307561", // 🔥 Número de La Obrera
-    domicilio: true, // ✅ Sí tiene servicio a domicilio
+    direccion: "Calle Obrera #456, Col. Industrial",
+    emoji: "🏭",
+    telefono: "5216391307561",
+    domicilio: true,
+    horario: "Lun-Dom 11am-9pm",
     mercadoPago: {
-      cuenta: "722969010279408583", // Misma cuenta (o cámbiala si es diferente)
+      cuenta: "722969010279408583",
       beneficiario: "Gabriel Jair Serrato Betance"
     }
   }
@@ -36,13 +42,58 @@ const SESSION_TIMEOUT = 5 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
 
 const PRICES = {
-  pepperoni: { grande: 130, extragrande: 180 },
-  carnes_frias: { grande: 170, extragrande: 220 },
-  hawaiana: { grande: 150, extragrande: 210 },
-  mexicana: { grande: 200, extragrande: 250 },
-  orilla_queso: 40,
-  extra: 15,
-  envio: 40
+  pepperoni: { 
+    nombre: "Pepperoni", 
+    grande: 130, 
+    extragrande: 180,
+    descripcion: "La clásica, salsa de tomate y pepperoni",
+    emoji: "🍕"
+  },
+  carnes_frias: { 
+    nombre: "Carnes Frías", 
+    grande: 170, 
+    extragrande: 220,
+    descripcion: "Jamón, salchicha, pepperoni y chorizo",
+    emoji: "🥩"
+  },
+  hawaiana: { 
+    nombre: "Hawaiana", 
+    grande: 150, 
+    extragrande: 210,
+    descripcion: "Jamón y piña, dulce y salado",
+    emoji: "🍍"
+  },
+  mexicana: { 
+    nombre: "Mexicana", 
+    grande: 200, 
+    extragrande: 250,
+    descripcion: "Chorizo, jalapeño, cebolla y frijoles",
+    emoji: "🌶️"
+  },
+  orilla_queso: {
+    nombre: "Orilla de Queso",
+    precio: 40,
+    emoji: "🧀"
+  },
+  extra: {
+    nombre: "Extra",
+    precio: 15,
+    emoji: "➕"
+  },
+  envio: {
+    nombre: "Envío a domicilio",
+    precio: 40,
+    emoji: "🚚"
+  }
+};
+
+const EXTRAS = {
+  pepperoni: { nombre: "Pepperoni extra", emoji: "🍖" },
+  jamon: { nombre: "Jamón extra", emoji: "🥓" },
+  jalapeno: { nombre: "Jalapeño", emoji: "🌶️" },
+  pina: { nombre: "Piña", emoji: "🍍" },
+  chorizo: { nombre: "Chorizo", emoji: "🌭" },
+  queso: { nombre: "Queso extra", emoji: "🧀" }
 };
 
 const sessions = {};
@@ -60,7 +111,7 @@ const now = () => Date.now();
 
 const resetSession = (from) => {
   sessions[from] = {
-    step: "seleccionar_sucursal", // 🔥 EMPIEZA AQUÍ
+    step: "seleccionar_sucursal",
     sucursal: null,
     pizzas: [],
     currentPizza: { extras: [], crust: false },
@@ -104,11 +155,11 @@ app.get("/test-business", async (req, res) => {
   try {
     await sendMessage(SUCURSALES.revolucion.telefono, { 
       type: "text", 
-      text: { body: "🧪 *PRUEBA REVOLUCIÓN*\n\nBot funcionando." } 
+      text: { body: "🧪 *PRUEBA REVOLUCIÓN*\n\nBot funcionando correctamente." } 
     });
     await sendMessage(SUCURSALES.obrera.telefono, { 
       type: "text", 
-      text: { body: "🧪 *PRUEBA OBRERA*\n\nBot funcionando." } 
+      text: { body: "🧪 *PRUEBA OBRERA*\n\nBot funcionando correctamente." } 
     });
     res.send("✅ Mensajes enviados a ambas sucursales");
   } catch (error) {
@@ -129,30 +180,43 @@ app.post("/webhook", async (req, res) => {
     const msg = value.messages[0];
     const from = msg.from;
 
-    // 🔥 DETECTAR SI ES IMAGEN (COMPROBANTE)
+    // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image") {
       console.log(`📸 Cliente ${from} envió comprobante`);
       
       if (!sessions[from]) {
-        await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
+        await sendMessage(from, textMsg("❌ *ERROR*\n\nNo tienes un pedido pendiente."));
         return res.sendStatus(200);
       }
       
       const s = sessions[from];
       if (!s.sucursal) {
-        await sendMessage(from, textMsg("❌ Error: Selecciona una sucursal primero."));
+        await sendMessage(from, textMsg("❌ *ERROR*\n\nSelecciona una sucursal primero."));
         return res.sendStatus(200);
       }
       
       const sucursal = SUCURSALES[s.sucursal];
       
-      await sendMessage(from, textMsg("✅ *COMPROBANTE RECIBIDO*\n\nTu pago está siendo verificado. Te confirmaremos en unos minutos."));
+      await sendMessage(from, textMsg(
+        "✅ *COMPROBANTE RECIBIDO*\n\n" +
+        "📸 Hemos recibido tu comprobante de pago.\n" +
+        "⏳ Lo estamos verificando...\n\n" +
+        "Te confirmaremos en unos minutos. ¡Gracias! 🙌"
+      ));
       
-      // Enviar imagen a la sucursal correspondiente
+      // Enviar imagen a la sucursal
       await sendMessage(sucursal.telefono, {
         type: "image",
         image: { id: msg.image.id },
-        caption: `📎 *COMPROBANTE DE PAGO*\n\n🏪 *${sucursal.nombre}*\n👤 *Cliente:* ${from}\n💰 *Monto:* $${s.totalTemp}\n🕒 *Hora:* ${new Date().toLocaleString('es-MX')}\n\n✅ *Esperando confirmación*`
+        caption: 
+          "📎 *NUEVO COMPROBANTE DE PAGO*\n" +
+          "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+          `🏪 *SUCURSAL:* ${sucursal.emoji} ${sucursal.nombre}\n` +
+          `👤 *CLIENTE:* ${from}\n` +
+          `💰 *MONTO:* $${s.totalTemp} MXN\n` +
+          `🕒 *HORA:* ${new Date().toLocaleString('es-MX')}\n\n` +
+          "━━━━━━━━━━━━━━━━━━━━━━\n" +
+          "👇 *VERIFICAR PAGO* 👇"
       });
       
       // Botones para la sucursal
@@ -160,11 +224,23 @@ app.post("/webhook", async (req, res) => {
         type: "interactive",
         interactive: {
           type: "button",
-          body: { text: `¿Confirmar pago de ${from} por $${s.totalTemp}?` },
+          body: { text: `🔍 *VERIFICAR PAGO - $${s.totalTemp}*` },
           action: {
             buttons: [
-              { type: "reply", reply: { id: `pago_ok_${from}_${s.sucursal}`, title: "✅ Sí, pagó" } },
-              { type: "reply", reply: { id: `pago_no_${from}_${s.sucursal}`, title: "❌ No, rechazar" } }
+              { 
+                type: "reply", 
+                reply: { 
+                  id: `pago_ok_${from}_${s.sucursal}`, 
+                  title: "✅ CONFIRMAR PAGO" 
+                } 
+              },
+              { 
+                type: "reply", 
+                reply: { 
+                  id: `pago_no_${from}_${s.sucursal}`, 
+                  title: "❌ RECHAZAR PAGO" 
+                } 
+              }
             ]
           }
         }
@@ -176,7 +252,7 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
     
-    // 🔥 DETECTAR RESPUESTA DE LA SUCURSAL
+    // 🔥 DETECTAR RESPUESTA DE SUCURSAL
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
       
@@ -187,11 +263,20 @@ app.post("/webhook", async (req, res) => {
         const sucursal = SUCURSALES[sucursalKey];
         
         await sendMessage(cliente, textMsg(
-          "✅ *PAGO CONFIRMADO*\n\n" +
-          `Tu transferencia ha sido verificada en ${sucursal.nombre}.\n` +
-          "¡Tu pedido ya está en preparación! 🍕"
+          "✅ *¡PAGO CONFIRMADO!* ✅\n\n" +
+          "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+          `🏪 *${sucursal.emoji} ${sucursal.nombre}*\n\n` +
+          "Tu transferencia ha sido verificada correctamente.\n" +
+          "¡Tu pedido ya está en preparación! 🍕\n\n" +
+          "⏱️ *Tiempo estimado:* 30-40 minutos\n\n" +
+          "━━━━━━━━━━━━━━━━━━━━━━\n" +
+          "¡Gracias por tu preferencia! 🙌"
         ));
-        await sendMessage(sucursal.telefono, textMsg(`✅ Pago confirmado para cliente ${cliente}`));
+        
+        await sendMessage(sucursal.telefono, 
+          textMsg(`✅ *PAGO CONFIRMADO*\n\nCliente: ${cliente}\nMonto: $${sessions[cliente]?.totalTemp || "---"}\n\nEl pedido ya puede prepararse.`)
+        );
+        
         return res.sendStatus(200);
       }
       
@@ -202,11 +287,23 @@ app.post("/webhook", async (req, res) => {
         const sucursal = SUCURSALES[sucursalKey];
         
         await sendMessage(cliente, textMsg(
-          "❌ *PAGO RECHAZADO*\n\n" +
-          "No pudimos verificar tu transferencia.\n" +
-          `Contacta a ${sucursal.nombre} para más información.`
+          "❌ *PAGO RECHAZADO* ❌\n\n" +
+          "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+          `🏪 *${sucursal.emoji} ${sucursal.nombre}*\n\n` +
+          "No pudimos verificar tu transferencia.\n\n" +
+          "Posibles causas:\n" +
+          "• El monto no coincide\n" +
+          "• La referencia es incorrecta\n" +
+          "• La imagen no es legible\n\n" +
+          "📞 *Contacta a la sucursal para asistencia:*\n" +
+          `${sucursal.telefono}\n\n` +
+          "━━━━━━━━━━━━━━━━━━━━━━"
         ));
-        await sendMessage(sucursal.telefono, textMsg(`❌ Pago rechazado para cliente ${cliente}`));
+        
+        await sendMessage(sucursal.telefono, 
+          textMsg(`❌ *PAGO RECHAZADO*\n\nCliente: ${cliente}\nMonto: $${sessions[cliente]?.totalTemp || "---"}\n\nEl pedido NO será preparado.`)
+        );
+        
         return res.sendStatus(200);
       }
     }
@@ -227,7 +324,7 @@ app.post("/webhook", async (req, res) => {
     const s = sessions[from];
     s.lastAction = now();
 
-    // ===== ANTI-SPAM NIVEL DIOS =====
+    // ===== ANTI-SPAM EXTREMO =====
     if (s.lastInput === input && !TEXT_ONLY_STEPS.includes(s.step)) {
       console.log(`🛑 Anti-spam: input repetido de ${from}`);
       return res.sendStatus(200);
@@ -243,13 +340,20 @@ app.post("/webhook", async (req, res) => {
 
     if (input === "cancelar") {
       delete sessions[from];
-      await sendMessage(from, textMsg("❌ Pedido cancelado.\n\n¡Esperamos verte pronto! 🍕"));
+      await sendMessage(from, textMsg(
+        "❌ *PEDIDO CANCELADO* ❌\n\n" +
+        "Tu pedido ha sido cancelado.\n" +
+        "¡Esperamos verte pronto! 🍕"
+      ));
       await sendMessage(from, seleccionarSucursal());
       return res.sendStatus(200);
     }
 
     if (rawText && !TEXT_ONLY_STEPS.includes(s.step)) {
-      await sendMessage(from, textMsg(`⚠️ Usa los botones.`));
+      await sendMessage(from, textMsg(
+        "⚠️ *SOLO BOTONES* ⚠️\n\n" +
+        "Por favor, usa los botones para continuar."
+      ));
       const botones = stepUI(s);
       if (botones) await sendMessage(from, botones);
       return res.sendStatus(200);
@@ -257,7 +361,9 @@ app.post("/webhook", async (req, res) => {
 
     let reply = null;
 
-    // 🔥 FLUJO PRINCIPAL
+    // =======================
+    // 🎯 FLUJO PRINCIPAL MEJORADO
+    // =======================
     switch (s.step) {
 
       // ===== SELECCIÓN DE SUCURSAL =====
@@ -271,25 +377,35 @@ app.post("/webhook", async (req, res) => {
           s.step = "welcome";
           reply = welcomeMessage(s);
         } else {
-          reply = merge(textMsg("❌ Selecciona una sucursal"), seleccionarSucursal());
+          reply = merge(
+            textMsg("❌ *OPCIÓN INVÁLIDA*\n\nSelecciona una sucursal:"),
+            seleccionarSucursal()
+          );
         }
         break;
 
-      // ===== BIENVENIDA CON NOMBRE DE SUCURSAL =====
+      // ===== BIENVENIDA PERSONALIZADA =====
       case "welcome":
         if (input === "pedido") {
           s.step = "pizza_type";
           reply = pizzaList();
         } else if (input === "menu") {
-          reply = merge(menuText(), welcomeMessage(s));
+          reply = merge(menuText(s), welcomeMessage(s));
         } else {
-          reply = merge(textMsg("❌ Opción no válida"), welcomeMessage(s));
+          reply = merge(
+            textMsg("❌ *OPCIÓN INVÁLIDA*"),
+            welcomeMessage(s)
+          );
         }
         break;
 
+      // ===== SELECCIÓN DE PIZZA =====
       case "pizza_type":
         if (!PRICES[input]) {
-          reply = merge(textMsg("❌ Pizza no válida"), pizzaList());
+          reply = merge(
+            textMsg("❌ *PIZZA NO VÁLIDA*\n\nSelecciona una opción del menú:"),
+            pizzaList()
+          );
           break;
         }
         s.currentPizza.type = input;
@@ -299,9 +415,13 @@ app.post("/webhook", async (req, res) => {
         reply = sizeButtons(s.currentPizza.type);
         break;
 
+      // ===== TAMAÑO =====
       case "size":
         if (!["grande", "extragrande"].includes(input)) {
-          reply = merge(textMsg("❌ Tamaño no válido"), sizeButtons(s.currentPizza.type));
+          reply = merge(
+            textMsg("❌ *TAMAÑO NO VÁLIDO*"),
+            sizeButtons(s.currentPizza.type)
+          );
           break;
         }
         s.currentPizza.size = input;
@@ -309,19 +429,24 @@ app.post("/webhook", async (req, res) => {
         reply = askCrust();
         break;
 
+      // ===== ORILLA DE QUESO =====
       case "ask_cheese_crust":
         if (input === "crust_si") {
           s.currentPizza.crust = true;
         } else if (input === "crust_no") {
           s.currentPizza.crust = false;
         } else {
-          reply = merge(textMsg("❌ Opción no válida"), askCrust());
+          reply = merge(
+            textMsg("❌ *OPCIÓN NO VÁLIDA*"),
+            askCrust()
+          );
           break;
         }
         s.step = "ask_extra";
         reply = askExtra();
         break;
 
+      // ===== PREGUNTA EXTRAS =====
       case "ask_extra":
         if (input === "extra_si") {
           s.step = "choose_extra";
@@ -332,13 +457,20 @@ app.post("/webhook", async (req, res) => {
           s.step = "another_pizza";
           reply = anotherPizza();
         } else {
-          reply = merge(textMsg("❌ Opción no válida"), askExtra());
+          reply = merge(
+            textMsg("❌ *OPCIÓN NO VÁLIDA*"),
+            askExtra()
+          );
         }
         break;
 
+      // ===== SELECCIÓN DE EXTRA =====
       case "choose_extra":
-        if (!extrasAllowed().includes(input)) {
-          reply = merge(textMsg("❌ Extra no válido"), extraList());
+        if (!Object.keys(EXTRAS).includes(input)) {
+          reply = merge(
+            textMsg("❌ *EXTRA NO VÁLIDO*"),
+            extraList()
+          );
           break;
         }
         s.currentPizza.extras.push(input);
@@ -346,6 +478,7 @@ app.post("/webhook", async (req, res) => {
         reply = askMoreExtras();
         break;
 
+      // ===== ¿OTRO EXTRA? =====
       case "more_extras":
         if (input === "extra_si") {
           s.step = "choose_extra";
@@ -356,10 +489,14 @@ app.post("/webhook", async (req, res) => {
           s.step = "another_pizza";
           reply = anotherPizza();
         } else {
-          reply = merge(textMsg("❌ Opción no válida"), askMoreExtras());
+          reply = merge(
+            textMsg("❌ *OPCIÓN NO VÁLIDA*"),
+            askMoreExtras()
+          );
         }
         break;
 
+      // ===== ¿OTRA PIZZA? =====
       case "another_pizza":
         if (input === "si") {
           s.step = "pizza_type";
@@ -368,15 +505,18 @@ app.post("/webhook", async (req, res) => {
           s.step = "delivery_method";
           reply = deliveryButtons(s);
         } else {
-          reply = merge(textMsg("❌ Opción no válida"), anotherPizza());
+          reply = merge(
+            textMsg("❌ *OPCIÓN NO VÁLIDA*"),
+            anotherPizza()
+          );
         }
         break;
 
+      // ===== MÉTODO DE ENTREGA =====
       case "delivery_method":
         const sucursal = SUCURSALES[s.sucursal];
         
         if (!sucursal.domicilio) {
-          // 🔥 Sucursal sin domicilio
           if (input === "recoger") {
             s.delivery = false;
             s.totalTemp = calcularTotal(s);
@@ -384,14 +524,22 @@ app.post("/webhook", async (req, res) => {
             reply = paymentOptions(s);
           } else if (input === "domicilio") {
             reply = merge(
-              textMsg("🚫 *SERVICIO A DOMICILIO NO DISPONIBLE*\n\nPor el momento solo atendemos en local."),
+              textMsg(
+                "🚫 *SERVICIO A DOMICILIO NO DISPONIBLE*\n\n" +
+                `📌 *${sucursal.emoji} ${sucursal.nombre}*\n` +
+                `📍 ${sucursal.direccion}\n\n` +
+                "Por el momento solo atendemos en local.\n" +
+                "¡Visítanos! Te esperamos 🍕"
+              ),
               deliveryButtons(s)
             );
           } else {
-            reply = merge(textMsg("❌ Opción no válida"), deliveryButtons(s));
+            reply = merge(
+              textMsg("❌ *OPCIÓN NO VÁLIDA*"),
+              deliveryButtons(s)
+            );
           }
         } else {
-          // 🔥 Sucursal CON domicilio
           if (input === "domicilio") {
             s.delivery = true;
             s.totalTemp = calcularTotal(s);
@@ -410,18 +558,22 @@ app.post("/webhook", async (req, res) => {
             s.step = "ask_payment";
             reply = paymentOptions(s);
           } else {
-            reply = merge(textMsg("❌ Opción no válida"), deliveryButtons(s));
+            reply = merge(
+              textMsg("❌ *OPCIÓN NO VÁLIDA*"),
+              deliveryButtons(s)
+            );
           }
         }
         break;
 
+      // ===== MÉTODO DE PAGO =====
       case "ask_payment":
         const sucursalPago = SUCURSALES[s.sucursal];
         
         if (s.pagoForzado) {
           if (input !== "pago_transferencia") {
             reply = merge(
-              textMsg(`❌ Pedidos > $${UMBRAL_TRANSFERENCIA} solo transferencia`),
+              textMsg(`⚠️ *PEDIDO SUPERIOR A $${UMBRAL_TRANSFERENCIA}*\n\nSolo aceptamos Mercado Pago.`),
               paymentForzadoMessage(s)
             );
             break;
@@ -433,33 +585,55 @@ app.post("/webhook", async (req, res) => {
           } else if (input === "pago_transferencia") {
             s.pagoMetodo = "Transferencia";
           } else {
-            reply = merge(textMsg("❌ Selecciona método"), paymentOptions(s));
+            reply = merge(
+              textMsg("❌ *SELECCIONA UN MÉTODO DE PAGO*"),
+              paymentOptions(s)
+            );
             break;
           }
         }
         
         if (s.delivery) {
           s.step = "ask_address";
-          reply = textMsg("📍 *DIRECCIÓN*\n\nEscribe tu dirección completa:");
+          reply = textMsg(
+            "📍 *DIRECCIÓN DE ENTREGA*\n\n" +
+            "Escribe tu dirección completa:\n" +
+            "Ej: Calle, Número, Colonia, Referencia"
+          );
         } else {
           s.step = "ask_pickup_name";
-          reply = textMsg("🏪 *RECOGER*\n\nEscribe el nombre de quien recoge:");
+          reply = textMsg(
+            "👤 *NOMBRE PARA RECOGER*\n\n" +
+            "Escribe el nombre de la persona que recogerá el pedido:"
+          );
         }
         break;
 
+      // ===== DIRECCIÓN =====
       case "ask_address":
         if (!rawText || rawText.length < 5) {
-          reply = textMsg("⚠️ Dirección muy corta. Intenta de nuevo:");
+          reply = textMsg(
+            "⚠️ *DIRECCIÓN INVÁLIDA*\n\n" +
+            "Escribe una dirección válida (mínimo 5 caracteres):"
+          );
           break;
         }
         s.address = rawText;
         s.step = "ask_phone";
-        reply = textMsg("📞 *TELÉFONO*\n\nEscribe tu número:");
+        reply = textMsg(
+          "📞 *TELÉFONO DE CONTACTO*\n\n" +
+          "Escribe tu número a 10 dígitos:\n" +
+          "Ej: 6391234567"
+        );
         break;
 
+      // ===== TELÉFONO =====
       case "ask_phone":
         if (!rawText || rawText.length < 8) {
-          reply = textMsg("⚠️ Teléfono inválido. Intenta de nuevo:");
+          reply = textMsg(
+            "⚠️ *TELÉFONO INVÁLIDO*\n\n" +
+            "Escribe un número válido a 10 dígitos:"
+          );
           break;
         }
         s.phone = rawText;
@@ -467,9 +641,13 @@ app.post("/webhook", async (req, res) => {
         reply = confirmacionFinal(s);
         break;
 
+      // ===== NOMBRE PARA RECOGER =====
       case "ask_pickup_name":
         if (!rawText || rawText.length < 3) {
-          reply = textMsg("⚠️ Nombre inválido. Intenta de nuevo:");
+          reply = textMsg(
+            "⚠️ *NOMBRE INVÁLIDO*\n\n" +
+            "Escribe un nombre válido (mínimo 3 caracteres):"
+          );
           break;
         }
         s.pickupName = rawText;
@@ -477,16 +655,20 @@ app.post("/webhook", async (req, res) => {
         reply = confirmacionFinal(s);
         break;
 
+      // ===== CONFIRMACIÓN FINAL =====
       case "confirmacion_final":
         if (input === "confirmar") {
           if (s.pagoMetodo === "Transferencia") {
             s.step = "ask_comprobante";
             reply = textMsg(
-              "🧾 *COMPROBANTE DE PAGO*\n\n" +
-              "📲 *Datos para transferencia (Mercado Pago):*\n" +
-              `🏦 Cuenta: ${SUCURSALES[s.sucursal].mercadoPago.cuenta}\n` +
-              `👤 Beneficiario: ${SUCURSALES[s.sucursal].mercadoPago.beneficiario}\n` +
-              "💰 Monto: $" + s.totalTemp + "\n\n" +
+              "🧾 *PAGO CON MERCADO PAGO*\n\n" +
+              "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
+              "📲 *DATOS PARA TRANSFERENCIA:*\n\n" +
+              `🏦 *Cuenta:* ${SUCURSALES[s.sucursal].mercadoPago.cuenta}\n` +
+              `👤 *Beneficiario:* ${SUCURSALES[s.sucursal].mercadoPago.beneficiario}\n` +
+              `💰 *Monto exacto:* $${s.totalTemp} MXN\n\n` +
+              "📝 *Importante:* Envía el comprobante con el monto exacto.\n\n" +
+              "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
               "✅ *Envía la FOTO del comprobante* para confirmar tu pedido."
             );
           } else {
@@ -495,18 +677,37 @@ app.post("/webhook", async (req, res) => {
           }
         } else if (input === "cancelar") {
           delete sessions[from];
-          reply = merge(textMsg("❌ Pedido cancelado."), seleccionarSucursal());
+          reply = merge(
+            textMsg("❌ *PEDIDO CANCELADO*"),
+            seleccionarSucursal()
+          );
         } else {
-          reply = merge(textMsg("❌ Opción no válida"), confirmacionFinal(s));
+          reply = merge(
+            textMsg("❌ *OPCIÓN NO VÁLIDA*"),
+            confirmacionFinal(s)
+          );
         }
         break;
 
+      // ===== ESPERANDO COMPROBANTE =====
       case "ask_comprobante":
-        reply = textMsg("📸 *ENVÍA LA FOTO DEL COMPROBANTE*\n\nPresiona el clip 📎 y selecciona la imagen.");
+        reply = textMsg(
+          "📸 *ENVÍA TU COMPROBANTE*\n\n" +
+          "1️⃣ Presiona el clip 📎\n" +
+          "2️⃣ Selecciona 'Imagen'\n" +
+          "3️⃣ Elige la foto de tu comprobante\n\n" +
+          "✅ Te confirmaremos en minutos."
+        );
         break;
 
+      // ===== ESPERANDO CONFIRMACIÓN =====
       case "esperando_confirmacion":
-        reply = textMsg("⏳ *PAGO EN VERIFICACIÓN*\n\nYa recibimos tu comprobante. Te confirmaremos en unos minutos.");
+        reply = textMsg(
+          "⏳ *PAGO EN VERIFICACIÓN*\n\n" +
+          "Ya recibimos tu comprobante.\n" +
+          "Te confirmaremos en unos minutos.\n\n" +
+          "¡Gracias por tu paciencia! 🙏"
+        );
         break;
     }
 
@@ -520,98 +721,255 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🔥 FUNCIONES CON SUCURSAL
+// 🎨 FUNCIONES UI MEJORADAS
 // =======================
-const seleccionarSucursal = () => buttons(
-  "🏪 *BIENVENIDO A PIZZERÍAS VILLA* 🏪\n\n¿En qué sucursal quieres pedir?",
-  [
+
+const seleccionarSucursal = () => {
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    "🏪 *PIZZERÍAS VILLA* 🏪\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "¡Bienvenido! ¿En qué sucursal\n" +
+    "quieres hacer tu pedido?\n\n" +
+    "Selecciona una opción:";
+  
+  return buttons(texto, [
     { id: "revolucion", title: "🌋 Villa Revolución" },
     { id: "obrera", title: "🏭 Villa La Obrera" },
     { id: "cancelar", title: "❌ Cancelar" }
-  ]
-);
+  ]);
+};
 
 const welcomeMessage = (s) => {
-  const sucursal = SUCURSALES[s.sucursal];
-  return buttons(
-    `🍕 *BIENVENIDO A ${sucursal.nombre}* 🍕\n\n¡La mejor pizza de la colonia!\n\n¿Qué deseas hacer hoy?`,
-    [
-      { id: "pedido", title: "🛒 Hacer pedido" },
-      { id: "menu", title: "📖 Ver menú" },
-      { id: "cancelar", title: "❌ Cancelar" }
-    ]
-  );
+  const suc = SUCURSALES[s.sucursal];
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    `${suc.emoji} *${suc.nombre}* ${suc.emoji}\n` +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    `📍 ${suc.direccion}\n` +
+    `🕒 ${suc.horario}\n\n` +
+    "🍕 *¡La mejor pizza de la colonia!*\n\n" +
+    "¿Qué deseas hacer hoy?";
+  
+  return buttons(texto, [
+    { id: "pedido", title: "🛒 Hacer pedido" },
+    { id: "menu", title: "📖 Ver menú" },
+    { id: "cancelar", title: "❌ Cancelar" }
+  ]);
+};
+
+const menuText = (s) => {
+  const suc = SUCURSALES[s.sucursal];
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    `📖 *MENÚ - ${suc.nombre}* 📖\n` +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "🍕 *PIZZAS*\n" +
+    "▸ Pepperoni: $130 / $180\n" +
+    "▸ Carnes frías: $170 / $220\n" +
+    "▸ Hawaiana: $150 / $210\n" +
+    "▸ Mexicana: $200 / $250\n\n" +
+    "🧀 *EXTRAS*\n" +
+    "▸ Orilla de queso: +$40\n" +
+    "▸ Ingrediente extra: +$15 c/u\n\n" +
+    "🚚 *ENVÍO*\n" +
+    "▸ A domicilio: +$40\n\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━";
+  
+  return textMsg(texto);
+};
+
+const pizzaList = () => {
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    "🍕 *ELIGE TU PIZZA* 🍕\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "Selecciona una opción:";
+  
+  return list(texto, [{
+    title: "PIZZAS DISPONIBLES",
+    rows: Object.keys(PRICES)
+      .filter(p => !["extra", "envio", "orilla_queso"].includes(p))
+      .map(p => ({
+        id: p,
+        title: `${PRICES[p].emoji} ${PRICES[p].nombre}`,
+        description: `${PRICES[p].descripcion} - G $${PRICES[p].grande} | EG $${PRICES[p].extragrande}`
+      }))
+  }]);
+};
+
+const sizeButtons = (pizzaType) => {
+  const pizza = PRICES[pizzaType];
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    `📏 *TAMAÑO - ${pizza.emoji} ${pizza.nombre}* 📏\n` +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "Elige el tamaño:";
+  
+  return buttons(texto, [
+    { id: "grande", title: `Grande $${pizza.grande}` },
+    { id: "extragrande", title: `Extra grande $${pizza.extragrande}` },
+    { id: "cancelar", title: "❌ Cancelar" }
+  ]);
+};
+
+const askCrust = () => {
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    "🧀 *ORILLA DE QUESO* 🧀\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "¿Quieres orilla de queso?\n" +
+    "✔️ Queso derretido en la orilla\n" +
+    `💰 *+$${PRICES.orilla_queso.precio}*`;
+  
+  return buttons(texto, [
+    { id: "crust_si", title: "✅ Sí (+$40)" },
+    { id: "crust_no", title: "❌ No" },
+    { id: "cancelar", title: "⏹️ Cancelar" }
+  ]);
+};
+
+const askExtra = () => {
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    "➕ *EXTRAS* ➕\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "¿Quieres agregar ingredientes extra?\n" +
+    `💰 *$${PRICES.extra.precio} c/u*`;
+  
+  return buttons(texto, [
+    { id: "extra_si", title: "✅ Sí" },
+    { id: "extra_no", title: "❌ No" },
+    { id: "cancelar", title: "⏹️ Cancelar" }
+  ]);
+};
+
+const extraList = () => {
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    "➕ *ELIGE UN EXTRA* ➕\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    `💰 *$${PRICES.extra.precio} cada uno*\n\n` +
+    "Selecciona un ingrediente:";
+  
+  return list(texto, [{
+    title: "EXTRAS DISPONIBLES",
+    rows: Object.entries(EXTRAS).map(([id, extra]) => ({
+      id: id,
+      title: `${extra.emoji} ${extra.nombre}`,
+      description: `+$${PRICES.extra.precio}`
+    }))
+  }]);
+};
+
+const askMoreExtras = () => {
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    "➕ *¿OTRO EXTRA?* ➕\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "¿Quieres agregar otro ingrediente?";
+  
+  return buttons(texto, [
+    { id: "extra_si", title: "✅ Sí" },
+    { id: "extra_no", title: "❌ No" },
+    { id: "cancelar", title: "⏹️ Cancelar" }
+  ]);
+};
+
+const anotherPizza = () => {
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    "🍕 *¿OTRA PIZZA?* 🍕\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "¿Quieres agregar otra pizza a tu pedido?";
+  
+  return buttons(texto, [
+    { id: "si", title: "✅ Sí" },
+    { id: "no", title: "❌ No" },
+    { id: "cancelar", title: "⏹️ Cancelar" }
+  ]);
 };
 
 const deliveryButtons = (s) => {
-  const sucursal = SUCURSALES[s.sucursal];
+  const suc = SUCURSALES[s.sucursal];
   const opciones = [];
   
-  if (sucursal.domicilio) {
+  if (suc.domicilio) {
     opciones.push({ id: "domicilio", title: "🏠 A domicilio (+$40)" });
   }
   opciones.push({ id: "recoger", title: "🏪 Recoger en tienda" });
   opciones.push({ id: "cancelar", title: "❌ Cancelar" });
   
-  return buttons("🚚 *MÉTODO DE ENTREGA*", opciones);
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    `🚚 *MÉTODO DE ENTREGA - ${suc.emoji} ${suc.nombre}* 🚚\n` +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "¿Cómo quieres recibir tu pedido?";
+  
+  return buttons(texto, opciones);
 };
 
 const paymentOptions = (s) => {
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    "💰 *MÉTODO DE PAGO* 💰\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "Selecciona cómo deseas pagar:";
+  
   const opciones = [
-    { id: "pago_efectivo", title: "💵 Efectivo" }
+    { id: "pago_efectivo", title: "💵 Efectivo" },
+    { id: "pago_transferencia", title: "🏦 Mercado Pago" },
+    { id: "cancelar", title: "❌ Cancelar" }
   ];
   
-  // Siempre mostrar transferencia como opción
-  opciones.push({ id: "pago_transferencia", title: "🏦 Mercado Pago" });
-  opciones.push({ id: "cancelar", title: "❌ Cancelar" });
-  
-  return buttons("💰 *MÉTODO DE PAGO*", opciones);
+  return buttons(texto, opciones);
 };
 
 const paymentForzadoMessage = (s) => {
-  return buttons(
-    `⚠️ *PEDIDO SUPERIOR A $${UMBRAL_TRANSFERENCIA}* ⚠️\n\n💰 Total: $${s.totalTemp}\n\nSolo aceptamos *MERCADO PAGO*`,
-    [
-      { id: "pago_transferencia", title: "🏦 Mercado Pago" },
-      { id: "cancelar", title: "❌ Cancelar" }
-    ]
-  );
-};
-
-const calcularTotal = (s) => {
-  let total = 0;
-  s.pizzas.forEach(p => {
-    total += PRICES[p.type][p.size];
-    if (p.crust) total += PRICES.orilla_queso;
-    total += p.extras.length * PRICES.extra;
-  });
-  if (s.delivery) total += PRICES.envio;
-  return total;
+  const texto = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    "⚠️ *PEDIDO SUPERIOR A $" + UMBRAL_TRANSFERENCIA + "* ⚠️\n" +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    `💰 *Total a pagar: $${s.totalTemp} MXN*\n\n` +
+    "Por políticas de la casa, pedidos mayores a\n" +
+    `$${UMBRAL_TRANSFERENCIA} solo aceptan *MERCADO PAGO*.\n\n` +
+    "Selecciona el método de pago:";
+  
+  return buttons(texto, [
+    { id: "pago_transferencia", title: "🏦 Mercado Pago" },
+    { id: "cancelar", title: "❌ Cancelar" }
+  ]);
 };
 
 const confirmacionFinal = (s) => {
   const total = calcularTotal(s);
-  const sucursal = SUCURSALES[s.sucursal];
+  const suc = SUCURSALES[s.sucursal];
   
-  let resumen = `📋 *CONFIRMA TU PEDIDO - ${sucursal.nombre}*\n\n`;
-  resumen += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
+  let resumen = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    `📋 *CONFIRMA TU PEDIDO* 📋\n` +
+    `   ${suc.emoji} ${suc.nombre}\n` +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n";
   
   s.pizzas.forEach((p, i) => {
+    const pizza = PRICES[p.type];
     resumen += `🍕 *PIZZA ${i+1}*\n`;
-    resumen += `   • ${p.type.replace("_", " ")}\n`;
-    resumen += `   • ${p.size === "grande" ? "Grande" : "Extra grande"}\n`;
-    if (p.crust) resumen += `   • 🧀 Orilla de queso\n`;
+    resumen += `   ▸ ${pizza.emoji} ${pizza.nombre}\n`;
+    resumen += `   ▸ ${p.size === "grande" ? "Grande" : "Extra grande"}\n`;
+    if (p.crust) resumen += `   ▸ 🧀 Orilla de queso\n`;
     if (p.extras?.length) {
-      resumen += `   • ➕ Extras: ${p.extras.join(", ")}\n`;
+      const extrasNombres = p.extras.map(e => EXTRAS[e].emoji + " " + EXTRAS[e].nombre).join(", ");
+      resumen += `   ▸ ➕ Extras: ${extrasNombres}\n`;
     }
     resumen += "\n";
   });
   
-  resumen += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
-  resumen += `💰 *TOTAL: $${total}*\n`;
-  resumen += `💳 *PAGO: ${s.pagoMetodo === "Transferencia" ? "Mercado Pago" : "Efectivo"}*\n`;
-  resumen += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
-  resumen += "¿Todo correcto?";
+  resumen += 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    `💰 *TOTAL: $${total} MXN*\n` +
+    `💳 *PAGO: ${s.pagoMetodo === "Transferencia" ? "🏦 Mercado Pago" : "💵 Efectivo"}*\n` +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+    "¿Todo está correcto?";
   
   return buttons(resumen, [
     { id: "confirmar", title: "✅ Confirmar pedido" },
@@ -619,17 +977,35 @@ const confirmacionFinal = (s) => {
   ]);
 };
 
+const calcularTotal = (s) => {
+  let total = 0;
+  s.pizzas.forEach(p => {
+    total += PRICES[p.type][p.size];
+    if (p.crust) total += PRICES.orilla_queso.precio;
+    total += p.extras.length * PRICES.extra.precio;
+  });
+  if (s.delivery) total += PRICES.envio.precio;
+  return total;
+};
+
 const finalizarPedido = async (s, from) => {
-  const sucursal = SUCURSALES[s.sucursal];
+  const suc = SUCURSALES[s.sucursal];
   const resumenCliente = buildSummary(s);
   const resumenNegocio = buildBusinessSummary(s);
   
   await sendMessage(from, resumenCliente);
-  await sendMessage(sucursal.telefono, resumenNegocio);
+  await sendMessage(suc.telefono, resumenNegocio);
   
   if (s.pagoMetodo === "Efectivo") {
-    await sendMessage(sucursal.telefono, 
-      textMsg(`💵 *PAGO EN EFECTIVO*\n\nCliente: ${from}\nTotal: $${s.totalTemp}`)
+    await sendMessage(suc.telefono, 
+      textMsg(
+        "━━━━━━━━━━━━━━━━━━━━━━\n" +
+        "💵 *PAGO EN EFECTIVO* 💵\n" +
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+        `👤 Cliente: ${from}\n` +
+        `💰 Total: $${s.totalTemp} MXN\n\n` +
+        "El cliente pagará al recibir."
+      )
     );
   }
   
@@ -637,59 +1013,64 @@ const finalizarPedido = async (s, from) => {
 };
 
 // =======================
-// RESUMENES
+// 📝 RESUMENES FINALES
 // =======================
 const buildBusinessSummary = (s) => {
-  const sucursal = SUCURSALES[s.sucursal];
+  const suc = SUCURSALES[s.sucursal];
   let total = 0;
-  let text = `🛎️ *NUEVO PEDIDO - ${sucursal.nombre}* 🛎️\n\n`;
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
+  let text = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    `🛎️ *NUEVO PEDIDO* 🛎️\n` +
+    `   ${suc.emoji} ${suc.nombre}\n` +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n";
   
-  text += `👤 *CLIENTE*: ${s.clientNumber}\n\n`;
+  text += `👤 *CLIENTE:* ${s.clientNumber}\n\n`;
 
   s.pizzas.forEach((p, i) => {
-    const pizzaPrice = PRICES[p.type][p.size];
+    const pizza = PRICES[p.type];
+    const pizzaPrice = pizza[p.size];
     total += pizzaPrice;
     
     text += `🍕 *PIZZA ${i + 1}*\n`;
-    text += `   • ${p.type.replace("_", " ")}\n`;
-    text += `   • ${p.size === "grande" ? "Grande" : "Extra grande"}\n`;
-    text += `   • Base: $${pizzaPrice}\n`;
+    text += `   ▸ ${pizza.emoji} ${pizza.nombre}\n`;
+    text += `   ▸ ${p.size === "grande" ? "Grande" : "Extra grande"}\n`;
+    text += `   ▸ Base: $${pizzaPrice}\n`;
     
     if (p.crust) {
-      total += PRICES.orilla_queso;
-      text += `   • 🧀 Orilla de queso: +$${PRICES.orilla_queso}\n`;
+      total += PRICES.orilla_queso.precio;
+      text += `   ▸ 🧀 Orilla de queso: +$${PRICES.orilla_queso.precio}\n`;
     }
     
     if (p.extras?.length) {
-      const extrasTotal = p.extras.length * PRICES.extra;
+      const extrasTotal = p.extras.length * PRICES.extra.precio;
       total += extrasTotal;
-      text += `   • ➕ Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
+      const extrasNombres = p.extras.map(e => EXTRAS[e].emoji + " " + EXTRAS[e].nombre).join(", ");
+      text += `   ▸ ➕ Extras: ${extrasNombres} (+$${extrasTotal})\n`;
     }
     text += "\n";
   });
 
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
+  text += "━━━━━━━━━━━━━━━━━━━━━━\n";
 
   if (s.delivery) {
-    total += PRICES.envio;
-    text += `🚚 *ENTREGA*: A domicilio\n`;
-    text += `   • Envío: +$${PRICES.envio}\n`;
-    text += `   • 📍 ${s.address}\n`;
-    text += `   • 📞 ${s.phone}\n\n`;
+    total += PRICES.envio.precio;
+    text += `🚚 *ENTREGA:* A domicilio\n`;
+    text += `   ▸ Envío: +$${PRICES.envio.precio}\n`;
+    text += `   ▸ 📍 ${s.address}\n`;
+    text += `   ▸ 📞 ${s.phone}\n\n`;
   } else {
-    text += `🏪 *ENTREGA*: Recoger en tienda\n`;
-    text += `   • 🙋 Nombre: ${s.pickupName}\n\n`;
+    text += `🏪 *ENTREGA:* Recoger en tienda\n`;
+    text += `   ▸ 🙋 Nombre: ${s.pickupName}\n\n`;
   }
 
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
+  text += "━━━━━━━━━━━━━━━━━━━━━━\n";
   text += `💰 *TOTAL: $${total} MXN*\n`;
-  text += `💳 *PAGO*: ${s.pagoMetodo === "Transferencia" ? "Mercado Pago" : "Efectivo"}\n`;
+  text += `💳 *PAGO:* ${s.pagoMetodo === "Transferencia" ? "🏦 Mercado Pago" : "💵 Efectivo"}\n`;
   if (s.pagoMetodo === "Transferencia") {
-    text += `   • 🏦 Comprobante: ${s.comprobanteEnviado ? "✅ Recibido" : "⏳ Pendiente"}\n`;
+    text += `   ▸ Comprobante: ${s.comprobanteEnviado ? "✅ Recibido" : "⏳ Pendiente"}\n`;
   }
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
-  text += `🕒 *HORA*: ${new Date().toLocaleString('es-MX')}\n`;
+  text += "━━━━━━━━━━━━━━━━━━━━━━\n\n";
+  text += `🕒 *HORA:* ${new Date().toLocaleString('es-MX')}\n`;
   text += "━━━━━━━━━━━━━━━━━━━━━━\n";
   text += "✨ *Prepáralo con amor* ✨";
 
@@ -697,124 +1078,59 @@ const buildBusinessSummary = (s) => {
 };
 
 const buildSummary = (s) => {
-  const sucursal = SUCURSALES[s.sucursal];
+  const suc = SUCURSALES[s.sucursal];
   let total = 0;
-  let text = `✅ *¡PEDIDO CONFIRMADO - ${sucursal.nombre}!* ✅\n\n`;
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
+  let text = 
+    "━━━━━━━━━━━━━━━━━━━━━━\n" +
+    `✅ *¡PEDIDO CONFIRMADO!* ✅\n` +
+    `   ${suc.emoji} ${suc.nombre}\n` +
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n";
 
   s.pizzas.forEach((p, i) => {
-    const pizzaPrice = PRICES[p.type][p.size];
+    const pizza = PRICES[p.type];
+    const pizzaPrice = pizza[p.size];
     total += pizzaPrice;
     
     text += `🍕 *PIZZA ${i + 1}*\n`;
-    text += `   • ${p.type.replace("_", " ")}\n`;
-    text += `   • ${p.size === "grande" ? "Grande" : "Extra grande"}\n`;
-    text += `   • Base: $${pizzaPrice}\n`;
+    text += `   ▸ ${pizza.emoji} ${pizza.nombre}\n`;
+    text += `   ▸ ${p.size === "grande" ? "Grande" : "Extra grande"}\n`;
+    text += `   ▸ Base: $${pizzaPrice}\n`;
     
     if (p.crust) {
-      total += PRICES.orilla_queso;
-      text += `   • 🧀 Orilla de queso: +$${PRICES.orilla_queso}\n`;
+      total += PRICES.orilla_queso.precio;
+      text += `   ▸ 🧀 Orilla de queso: +$${PRICES.orilla_queso.precio}\n`;
     }
     
     if (p.extras?.length) {
-      const extrasTotal = p.extras.length * PRICES.extra;
+      const extrasTotal = p.extras.length * PRICES.extra.precio;
       total += extrasTotal;
-      text += `   • ➕ Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
+      const extrasNombres = p.extras.map(e => EXTRAS[e].emoji + " " + EXTRAS[e].nombre).join(", ");
+      text += `   ▸ ➕ Extras: ${extrasNombres} (+$${extrasTotal})\n`;
     }
     text += "\n";
   });
 
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
+  text += "━━━━━━━━━━━━━━━━━━━━━━\n";
 
   if (s.delivery) {
-    total += PRICES.envio;
-    text += `🚚 *ENTREGA*: A domicilio\n`;
-    text += `   • Envío: +$${PRICES.envio}\n`;
-    text += `   • 📍 ${s.address}\n`;
-    text += `   • 📞 ${s.phone}\n\n`;
+    total += PRICES.envio.precio;
+    text += `🚚 *ENTREGA:* A domicilio\n`;
+    text += `   ▸ Envío: +$${PRICES.envio.precio}\n`;
+    text += `   ▸ 📍 ${s.address}\n`;
+    text += `   ▸ 📞 ${s.phone}\n\n`;
   } else {
-    text += `🏪 *ENTREGA*: Recoger en tienda\n`;
-    text += `   • 🙋 Nombre: ${s.pickupName}\n\n`;
+    text += `🏪 *ENTREGA:* Recoger en tienda\n`;
+    text += `   ▸ 🙋 Nombre: ${s.pickupName}\n\n`;
   }
 
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n";
+  text += "━━━━━━━━━━━━━━━━━━━━━━\n";
   text += `💰 *TOTAL: $${total} MXN*\n`;
-  text += "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n";
-  text += `✨ *¡Gracias por tu pedido en ${sucursal.nombre}!*\n`;
-  text += "🍕 *Pizzerías Villa*";
+  text += "━━━━━━━━━━━━━━━━━━━━━━\n\n";
+  text += `✨ *¡Gracias por tu pedido en ${suc.nombre}!*\n`;
+  text += "🍕 Te esperamos pronto.";
 
   return textMsg(text);
 };
-
-// =======================
-// UI BASE
-// =======================
-const menuText = () => textMsg(
-  "📖 *MENÚ*\n\n" +
-  "🍕 Pepperoni: $130 / $180\n" +
-  "🍕 Carnes frías: $170 / $220\n" +
-  "🍕 Hawaiana: $150 / $210\n" +
-  "🍕 Mexicana: $200 / $250\n\n" +
-  "🧀 Orilla de queso: +$40\n" +
-  "➕ Extras: $15 c/u\n" +
-  "🚚 Envío: $40"
-);
-
-const pizzaList = () => list("🍕 *ELIGE TU PIZZA*", [{
-  title: "PIZZAS",
-  rows: Object.keys(PRICES)
-    .filter(p => !["extra", "envio", "orilla_queso"].includes(p))
-    .map(p => ({
-      id: p,
-      title: `🍕 ${p.replace("_", " ")}`,
-      description: `G $${PRICES[p].grande} | EG $${PRICES[p].extragrande}`
-    }))
-}]);
-
-const sizeButtons = (pizzaType) => {
-  const prices = PRICES[pizzaType];
-  return buttons("📏 *TAMAÑO*", [
-    { id: "grande", title: `Grande $${prices.grande}` },
-    { id: "extragrande", title: `Extra $${prices.extragrande}` },
-    { id: "cancelar", title: "❌ Cancelar" }
-  ]);
-};
-
-const askCrust = () => buttons("🧀 *¿ORILLA DE QUESO?* (+$40)", [
-  { id: "crust_si", title: "✅ Sí (+$40)" },
-  { id: "crust_no", title: "❌ No" },
-  { id: "cancelar", title: "⏹️ Cancelar" }
-]);
-
-const askExtra = () => buttons("➕ *¿AGREGAR EXTRA?* ($15 c/u)", [
-  { id: "extra_si", title: "✅ Sí" },
-  { id: "extra_no", title: "❌ No" },
-  { id: "cancelar", title: "⏹️ Cancelar" }
-]);
-
-const extrasAllowed = () =>
-  ["pepperoni", "jamon", "jalapeno", "pina", "chorizo", "queso"];
-
-const extraList = () => list("➕ *ELIGE UN EXTRA* ($15)", [{
-  title: "EXTRAS",
-  rows: extrasAllowed().map(e => ({
-    id: e,
-    title: `• ${e.charAt(0).toUpperCase() + e.slice(1)}`,
-    description: "+$15"
-  }))
-}]);
-
-const askMoreExtras = () => buttons("➕ *¿OTRO EXTRA?*", [
-  { id: "extra_si", title: "✅ Sí" },
-  { id: "extra_no", title: "❌ No" },
-  { id: "cancelar", title: "⏹️ Cancelar" }
-]);
-
-const anotherPizza = () => buttons("🍕 *¿OTRA PIZZA?*", [
-  { id: "si", title: "✅ Sí" },
-  { id: "no", title: "❌ No" },
-  { id: "cancelar", title: "⏹️ Cancelar" }
-]);
 
 const stepUI = (s) => {
   if (!s.sucursal) return seleccionarSucursal();
@@ -913,7 +1229,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot multisucursal corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot multisucursal V2 corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
