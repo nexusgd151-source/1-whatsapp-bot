@@ -176,9 +176,10 @@ app.post("/webhook", async (req, res) => {
     const msg = value.messages[0];
     const from = msg.from;
 
-    // 🔥 DETECTAR IMAGEN (COMPROBANTE)
-    if (msg.type === "image") {
-      console.log(`📸 Cliente ${from} envió comprobante`);
+    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - VERSIÓN MEJORADA
+    if (msg.type === "image" || msg.type === "document") {
+      console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
+      console.log("📦 Datos completos del mensaje:", JSON.stringify(msg, null, 2));
       
       if (!sessions[from]) {
         await sendMessage(from, textMsg("❌ *ERROR*\n\nNo tienes un pedido pendiente."));
@@ -193,6 +194,13 @@ app.post("/webhook", async (req, res) => {
       
       const sucursal = SUCURSALES[s.sucursal];
       
+      // Verificar que el cliente esté en el paso correcto
+      if (s.step !== "ask_comprobante" && s.step !== "esperando_confirmacion") {
+        await sendMessage(from, textMsg("❌ *ERROR*\n\nNo estamos esperando un comprobante en este momento."));
+        return res.sendStatus(200);
+      }
+      
+      // Avisar al cliente
       await sendMessage(from, textMsg(
         "✅ *COMPROBANTE RECIBIDO*\n\n" +
         "📸 Hemos recibido tu comprobante de pago.\n" +
@@ -200,20 +208,42 @@ app.post("/webhook", async (req, res) => {
         "Te confirmaremos en unos minutos. ¡Gracias! 🙌"
       ));
       
+      // Determinar el tipo de media
+      let mediaPayload;
+      let mediaType = "image";
+      
+      if (msg.type === "image") {
+        mediaPayload = { id: msg.image.id };
+        console.log(`🖼️ ID de imagen: ${msg.image.id}`);
+      } else if (msg.type === "document") {
+        // Verificar si es una imagen enviada como documento
+        if (msg.document.mime_type?.startsWith("image/")) {
+          mediaPayload = { id: msg.document.id };
+          console.log(`📄 Documento de imagen recibido, ID: ${msg.document.id}, MIME: ${msg.document.mime_type}`);
+        } else {
+          await sendMessage(from, textMsg("❌ *ERROR*\n\nEl archivo no es una imagen. Por favor envía una foto."));
+          return res.sendStatus(200);
+        }
+      }
+      
       // Enviar imagen a la sucursal
+      const caption = 
+        "📎 *NUEVO COMPROBANTE DE PAGO*\n" +
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+        `🏪 *SUCURSAL:* ${sucursal.emoji} ${sucursal.nombre}\n` +
+        `👤 *CLIENTE:* ${from}\n` +
+        `💰 *MONTO:* $${s.totalTemp} MXN\n` +
+        `🕒 *HORA:* ${new Date().toLocaleString('es-MX')}\n\n` +
+        "━━━━━━━━━━━━━━━━━━━━━━\n" +
+        "👇 *VERIFICAR PAGO* 👇";
+      
       await sendMessage(sucursal.telefono, {
-        type: "image",
-        image: { id: msg.image.id },
-        caption: 
-          "📎 *NUEVO COMPROBANTE DE PAGO*\n" +
-          "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
-          `🏪 *SUCURSAL:* ${sucursal.emoji} ${sucursal.nombre}\n` +
-          `👤 *CLIENTE:* ${from}\n` +
-          `💰 *MONTO:* $${s.totalTemp} MXN\n` +
-          `🕒 *HORA:* ${new Date().toLocaleString('es-MX')}\n\n` +
-          "━━━━━━━━━━━━━━━━━━━━━━\n" +
-          "👇 *VERIFICAR PAGO* 👇"
+        type: mediaType,
+        [mediaType]: mediaPayload,
+        caption: caption
       });
+      
+      console.log(`📤 Comprobante reenviado a sucursal ${sucursal.telefono}`);
       
       // Botones para la sucursal
       await sendMessage(sucursal.telefono, {
@@ -717,7 +747,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI MEJORADAS (CON BIENVENIDA CORREGIDA)
+// 🎨 FUNCIONES UI MEJORADAS
 // =======================
 
 const seleccionarSucursal = () => {
@@ -736,7 +766,6 @@ const seleccionarSucursal = () => {
   ]);
 };
 
-// ===== 🔥 FUNCIÓN CORREGIDA - BIENVENIDA =====
 const welcomeMessage = (s) => {
   const suc = SUCURSALES[s.sucursal];
   const nombreSucursal = s.sucursal === "revolucion" ? "Revolución" : "Obrera";
