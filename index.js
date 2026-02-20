@@ -9,7 +9,6 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // =======================
-// =======================
 // 🏪 CONFIGURACIÓN DE SUCURSALES
 // =======================
 const SUCURSALES = {
@@ -17,7 +16,7 @@ const SUCURSALES = {
     nombre: "VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🌋",
-    telefono: "5216391946965", // 🔥 NUEVO NÚMERO PARA REVOLUCIÓN
+    telefono: "5216391946965",
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -29,7 +28,7 @@ const SUCURSALES = {
     nombre: "VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏭",
-    telefono: "5216391759607", // 🔥 NÚMERO DE LA OBRERA
+    telefono: "5216391759607",
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -411,7 +410,7 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== BIENVENIDA PERSONALIZADA (CORREGIDA) =====
+      // ===== BIENVENIDA PERSONALIZADA =====
       case "welcome":
         if (input === "pedido") {
           s.step = "pizza_type";
@@ -593,14 +592,12 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== MÉTODO DE PAGO =====
+      // ===== MÉTODO DE PAGO (OPCIONES NORMALES) =====
       case "ask_payment":
-        const sucursalPago = SUCURSALES[s.sucursal];
-        
         if (s.pagoForzado) {
           if (input !== "pago_transferencia") {
             reply = merge(
-              textMsg(`⚠️ *PEDIDO SUPERIOR A $${UMBRAL_TRANSFERENCIA}*\n\nSolo aceptamos Mercado Pago.`),
+              textMsg(`❌ *OPCIÓN NO DISPONIBLE*\n\nEste pedido solo acepta transferencia.`),
               paymentForzadoMessage(s)
             );
             break;
@@ -688,7 +685,7 @@ app.post("/webhook", async (req, res) => {
           if (s.pagoMetodo === "Transferencia") {
             s.step = "ask_comprobante";
             reply = textMsg(
-              "🧾 *PAGO CON MERCADO PAGO*\n\n" +
+              "🧾 *PAGO CON TRANSFERENCIA*\n\n" +
               "━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━ ━\n\n" +
               "📲 *DATOS PARA TRANSFERENCIA:*\n\n" +
               `🏦 *Cuenta:* ${SUCURSALES[s.sucursal].mercadoPago.cuenta}\n` +
@@ -748,7 +745,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI MEJORADAS
+// 🎨 FUNCIONES UI
 // =======================
 
 const seleccionarSucursal = () => {
@@ -768,7 +765,6 @@ const seleccionarSucursal = () => {
 };
 
 const welcomeMessage = (s) => {
-  const suc = SUCURSALES[s.sucursal];
   const nombreSucursal = s.sucursal === "revolucion" ? "Revolución" : "Obrera";
   const texto = 
     "━━━━━━━━━━━━━━━━━━━━━━\n" +
@@ -946,25 +942,24 @@ const paymentOptions = (s) => {
   
   const opciones = [
     { id: "pago_efectivo", title: "💵 Efectivo" },
-    { id: "pago_transferencia", title: "🏦 Mercado Pago" },
+    { id: "pago_transferencia", title: "🏦 Transferencia" },
     { id: "cancelar", title: "❌ Cancelar" }
   ];
   
   return buttons(texto, opciones);
 };
 
+// ===== 🔥 FUNCIÓN CORREGIDA (VERSIÓN DISCRETA) =====
 const paymentForzadoMessage = (s) => {
   const texto = 
     "━━━━━━━━━━━━━━━━━━━━━━\n" +
-    "⚠️ *PEDIDO SUPERIOR A $" + UMBRAL_TRANSFERENCIA + "* ⚠️\n" +
+    "💰 *SELECCIONA MÉTODO DE PAGO* 💰\n" +
     "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
-    `💰 *Total a pagar: $${s.totalTemp} MXN*\n\n` +
-    "Por políticas de la casa, pedidos mayores a\n" +
-    `$${UMBRAL_TRANSFERENCIA} solo aceptan *MERCADO PAGO*.\n\n` +
-    "Selecciona el método de pago:";
+    `💵 *Total a pagar: $${s.totalTemp} MXN*\n\n` +
+    "👇 *Selecciona una opción:*";
   
   return buttons(texto, [
-    { id: "pago_transferencia", title: "🏦 Mercado Pago" },
+    { id: "pago_transferencia", title: "🏦 Transferencia" },
     { id: "cancelar", title: "❌ Cancelar" }
   ]);
 };
@@ -995,7 +990,7 @@ const confirmacionFinal = (s) => {
   resumen += 
     "━━━━━━━━━━━━━━━━━━━━━━\n" +
     `💰 *TOTAL: $${total} MXN*\n` +
-    `💳 *PAGO: ${s.pagoMetodo === "Transferencia" ? "🏦 Mercado Pago" : "💵 Efectivo"}*\n` +
+    `💳 *PAGO: ${s.pagoMetodo === "Transferencia" ? "🏦 Transferencia" : "💵 Efectivo"}*\n` +
     "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
     "¿Todo está correcto?";
   
@@ -1093,7 +1088,7 @@ const buildBusinessSummary = (s) => {
 
   text += "━━━━━━━━━━━━━━━━━━━━━━\n";
   text += `💰 *TOTAL: $${total} MXN*\n`;
-  text += `💳 *PAGO:* ${s.pagoMetodo === "Transferencia" ? "🏦 Mercado Pago" : "💵 Efectivo"}\n`;
+  text += `💳 *PAGO:* ${s.pagoMetodo === "Transferencia" ? "🏦 Transferencia" : "💵 Efectivo"}\n`;
   if (s.pagoMetodo === "Transferencia") {
     text += `   ▸ Comprobante: ${s.comprobanteEnviado ? "✅ Recibido" : "⏳ Pendiente"}\n`;
   }
@@ -1257,7 +1252,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot multisucursal V3 corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot multisucursal V4 corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
