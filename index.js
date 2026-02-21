@@ -273,30 +273,44 @@ app.post("/webhook", async (req, res) => {
         }
       });
       
+      console.log(`📤 Botones de verificación enviados a sucursal ${sucursal.telefono} con ID ${pagoId}`);
+      
       s.comprobanteEnviado = true;
       s.step = "esperando_confirmacion";
       
       return res.sendStatus(200);
     }
     
-    // 🔥 DETECTAR RESPUESTA DE SUCURSAL
+    // 🔥 DETECTAR RESPUESTA DE SUCURSAL - VERSIÓN CORREGIDA (LÍNEA ~261)
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
+      console.log(`🔍 Botón presionado: ${replyId}`);
+      console.log(`📦 Mensaje completo:`, JSON.stringify(msg, null, 2));
       
+      // VERIFICAR SI ES UN BOTÓN DE PAGO
       if (replyId.startsWith("pago_ok_") || replyId.startsWith("pago_no_")) {
+        console.log(`✅ Detectado botón de pago: ${replyId}`);
+        
+        // Extraer información del ID (formato: pago_ok_cliente_sucursal_timestamp)
         const partes = replyId.split("_");
-        const tipo = partes[1];
-        const pagoId = partes.slice(2).join("_");
+        const tipo = partes[1]; // "ok" o "no"
+        const cliente = partes[2];
+        const sucursalKey = partes[3];
+        const timestamp = partes[4];
         
-        console.log(`🔍 Respuesta de pago recibida: ${tipo}, ID: ${pagoId}`);
-        
-        const pagoPartes = pagoId.split("_");
-        const cliente = pagoPartes[0];
-        const sucursalKey = pagoPartes[1];
+        console.log(`📊 Datos extraídos: tipo=${tipo}, cliente=${cliente}, sucursal=${sucursalKey}, timestamp=${timestamp}`);
         
         const sucursal = SUCURSALES[sucursalKey];
         
+        if (!sucursal) {
+          console.log(`❌ Sucursal no encontrada: ${sucursalKey}`);
+          await sendMessage(from, textMsg("❌ *ERROR*\n\nSucursal no identificada."));
+          return res.sendStatus(200);
+        }
+        
+        // Verificar que el cliente existe
         if (!sessions[cliente]) {
+          console.log(`⚠️ Cliente ${cliente} no tiene sesión activa`);
           await sendMessage(sucursal.telefono, 
             textMsg("⚠️ *ERROR*\n\nEl cliente ya no tiene una sesión activa.")
           );
@@ -305,23 +319,40 @@ app.post("/webhook", async (req, res) => {
         
         const s = sessions[cliente];
         
-        if (s.pagoId !== pagoId) {
+        // Verificar que el ID del pago coincide
+        if (s.pagoId !== `${cliente}_${sucursalKey}_${timestamp}`) {
+          console.log(`⚠️ ID de pago no coincide. Esperado: ${s.pagoId}, Recibido: ${cliente}_${sucursalKey}_${timestamp}`);
           await sendMessage(sucursal.telefono, 
-            textMsg("⚠️ *ERROR*\n\nEste botón ya no es válido.")
+            textMsg("⚠️ *ERROR*\n\nEste botón ya no es válido. El pago fue procesado con otro ID.")
           );
           return res.sendStatus(200);
         }
         
+        // Verificar que el pago no fue procesado
         if (s.pagoProcesado) {
+          console.log(`🛑 Pago ya procesado para cliente ${cliente}`);
           await sendMessage(sucursal.telefono, 
             textMsg("⚠️ *PAGO YA PROCESADO*\n\nEste pago ya fue confirmado/rechazado anteriormente.")
           );
           return res.sendStatus(200);
         }
         
+        // Verificar que hay un monto válido
+        if (!s.totalTemp || s.totalTemp <= 0) {
+          console.log(`⚠️ Monto inválido para cliente ${cliente}: ${s.totalTemp}`);
+          await sendMessage(sucursal.telefono, 
+            textMsg("⚠️ *ERROR*\n\nNo hay información de monto válida para este pedido.")
+          );
+          return res.sendStatus(200);
+        }
+        
+        // Marcar como procesado
         s.pagoProcesado = true;
         
         if (tipo === "ok") {
+          console.log(`✅ Confirmando pago para cliente ${cliente} por $${s.totalTemp}`);
+          
+          // Notificar al cliente
           await sendMessage(cliente, textMsg(
             "✅ *¡PAGO CONFIRMADO!* ✅\n\n" +
             "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
@@ -333,6 +364,7 @@ app.post("/webhook", async (req, res) => {
             "¡Gracias por tu preferencia! 🙌"
           ));
           
+          // Notificar a la sucursal
           await sendMessage(sucursal.telefono, 
             textMsg(
               "━━━━━━━━━━━━━━━━━━━━━━\n" +
@@ -345,17 +377,28 @@ app.post("/webhook", async (req, res) => {
               "━━━━━━━━━━━━━━━━━━━━━━"
             )
           );
-        } else {
+          
+          console.log(`✅ Notificaciones enviadas para pago confirmado`);
+          
+        } else if (tipo === "no") {
+          console.log(`❌ Rechazando pago para cliente ${cliente}`);
+          
+          // Notificar al cliente
           await sendMessage(cliente, textMsg(
             "❌ *PAGO RECHAZADO* ❌\n\n" +
             "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
             `🏪 *${sucursal.emoji} ${sucursal.nombre}*\n\n` +
             "No pudimos verificar tu transferencia.\n\n" +
+            "Posibles causas:\n" +
+            "• El monto no coincide\n" +
+            "• La referencia es incorrecta\n" +
+            "• La imagen no es legible\n\n" +
             "📞 *Contacta a la sucursal para asistencia:*\n" +
             `${sucursal.telefono}\n\n` +
             "━━━━━━━━━━━━━━━━━━━━━━"
           ));
           
+          // Notificar a la sucursal
           await sendMessage(sucursal.telefono, 
             textMsg(
               "━━━━━━━━━━━━━━━━━━━━━━\n" +
@@ -368,6 +411,8 @@ app.post("/webhook", async (req, res) => {
               "━━━━━━━━━━━━━━━━━━━━━━"
             )
           );
+          
+          console.log(`✅ Notificaciones enviadas para pago rechazado`);
         }
         
         return res.sendStatus(200);
@@ -428,7 +473,7 @@ app.post("/webhook", async (req, res) => {
     let reply = null;
 
     // =======================
-    // 🎯 FLUJO PRINCIPAL CORREGIDO
+    // 🎯 FLUJO PRINCIPAL
     // =======================
     switch (s.step) {
 
@@ -479,7 +524,6 @@ app.post("/webhook", async (req, res) => {
         reply = sizeButtons(s.currentPizza.type);
         break;
 
-      // ===== 🔥 CASE SIZE CORREGIDO =====
       case "size":
         if (!["grande", "extragrande"].includes(input)) {
           console.log(`❌ Tamaño no válido: ${input}`);
@@ -1293,7 +1337,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot multisucursal V6 (Corregido) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot multisucursal V7 (Con corrección de pagos) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
