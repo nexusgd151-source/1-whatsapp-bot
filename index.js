@@ -123,8 +123,8 @@ const resetSession = (from) => {
     address: null,
     phone: null,
     pickupName: null,
-    pagoProcesado: false, // 🔥 NUEVO CAMPO PARA PROTECCIÓN
-    pagosProcesados: {}    // 🔥 REGISTRO DE PAGOS POR ID
+    pagoProcesado: false,
+    pagosProcesados: {}
   };
 };
 
@@ -178,10 +178,9 @@ app.post("/webhook", async (req, res) => {
     const msg = value.messages[0];
     const from = msg.from;
 
-    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - VERSIÓN MEJORADA
+    // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image" || msg.type === "document") {
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
-      console.log("📦 Datos completos del mensaje:", JSON.stringify(msg, null, 2));
       
       if (!sessions[from]) {
         await sendMessage(from, textMsg("❌ *ERROR*\n\nNo tienes un pedido pendiente."));
@@ -196,19 +195,16 @@ app.post("/webhook", async (req, res) => {
       
       const sucursal = SUCURSALES[s.sucursal];
       
-      // Verificar que el cliente esté en el paso correcto
       if (s.step !== "ask_comprobante" && s.step !== "esperando_confirmacion") {
         await sendMessage(from, textMsg("❌ *ERROR*\n\nNo estamos esperando un comprobante en este momento."));
         return res.sendStatus(200);
       }
       
-      // Verificar que el pago no haya sido procesado ya
       if (s.pagoProcesado) {
         await sendMessage(from, textMsg("❌ *ERROR*\n\nEste pago ya fue procesado anteriormente."));
         return res.sendStatus(200);
       }
       
-      // Avisar al cliente
       await sendMessage(from, textMsg(
         "✅ *COMPROBANTE RECIBIDO*\n\n" +
         "📸 Hemos recibido tu comprobante de pago.\n" +
@@ -216,7 +212,6 @@ app.post("/webhook", async (req, res) => {
         "Te confirmaremos en unos minutos. ¡Gracias! 🙌"
       ));
       
-      // Determinar el tipo de media
       let mediaPayload;
       let mediaType = "image";
       
@@ -224,7 +219,6 @@ app.post("/webhook", async (req, res) => {
         mediaPayload = { id: msg.image.id };
         console.log(`🖼️ ID de imagen: ${msg.image.id}`);
       } else if (msg.type === "document") {
-        // Verificar si es una imagen enviada como documento
         if (msg.document.mime_type?.startsWith("image/")) {
           mediaPayload = { id: msg.document.id };
           console.log(`📄 Documento de imagen recibido, ID: ${msg.document.id}, MIME: ${msg.document.mime_type}`);
@@ -234,11 +228,9 @@ app.post("/webhook", async (req, res) => {
         }
       }
       
-      // Generar ID único para este pago
       const pagoId = `${from}_${s.sucursal}_${Date.now()}`;
       s.pagoId = pagoId;
       
-      // Enviar imagen a la sucursal
       const caption = 
         "📎 *NUEVO COMPROBANTE DE PAGO*\n" +
         "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
@@ -255,9 +247,6 @@ app.post("/webhook", async (req, res) => {
         caption: caption
       });
       
-      console.log(`📤 Comprobante reenviado a sucursal ${sucursal.telefono} con ID ${pagoId}`);
-      
-      // Botones para la sucursal (con ID único)
       await sendMessage(sucursal.telefono, {
         type: "interactive",
         interactive: {
@@ -290,29 +279,24 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
     
-    // 🔥 DETECTAR RESPUESTA DE SUCURSAL - CON PROTECCIÓN MEJORADA
+    // 🔥 DETECTAR RESPUESTA DE SUCURSAL
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
       
-      // Solo procesar si es un ID de pago
       if (replyId.startsWith("pago_ok_") || replyId.startsWith("pago_no_")) {
         const partes = replyId.split("_");
-        const tipo = partes[1]; // ok o no
-        const pagoId = partes.slice(2).join("_"); // El resto es el ID único
+        const tipo = partes[1];
+        const pagoId = partes.slice(2).join("_");
         
         console.log(`🔍 Respuesta de pago recibida: ${tipo}, ID: ${pagoId}`);
         
-        // Extraer cliente y sucursal del pagoId (formato: cliente_sucursal_timestamp)
         const pagoPartes = pagoId.split("_");
         const cliente = pagoPartes[0];
         const sucursalKey = pagoPartes[1];
-        const timestamp = pagoPartes[2];
         
         const sucursal = SUCURSALES[sucursalKey];
         
-        // 🔥 PROTECCIÓN 1: Verificar que el cliente existe
         if (!sessions[cliente]) {
-          console.log(`⚠️ Cliente ${cliente} no tiene sesión activa`);
           await sendMessage(sucursal.telefono, 
             textMsg("⚠️ *ERROR*\n\nEl cliente ya no tiene una sesión activa.")
           );
@@ -321,56 +305,23 @@ app.post("/webhook", async (req, res) => {
         
         const s = sessions[cliente];
         
-        // 🔥 PROTECCIÓN 2: Verificar que el ID del pago coincide
         if (s.pagoId !== pagoId) {
-          console.log(`⚠️ ID de pago no coincide. Esperado: ${s.pagoId}, Recibido: ${pagoId}`);
           await sendMessage(sucursal.telefono, 
-            textMsg("⚠️ *ERROR*\n\nEste botón ya no es válido. El pago fue procesado con otro ID.")
+            textMsg("⚠️ *ERROR*\n\nEste botón ya no es válido.")
           );
           return res.sendStatus(200);
         }
         
-        // 🔥 PROTECCIÓN 3: Verificar que el pago no fue procesado
         if (s.pagoProcesado) {
-          console.log(`🛑 Pago ya procesado para cliente ${cliente}`);
           await sendMessage(sucursal.telefono, 
             textMsg("⚠️ *PAGO YA PROCESADO*\n\nEste pago ya fue confirmado/rechazado anteriormente.")
           );
           return res.sendStatus(200);
         }
         
-        // 🔥 PROTECCIÓN 4: Verificar que el monto es válido
-        if (!s.totalTemp || s.totalTemp <= 0) {
-          console.log(`⚠️ Monto inválido para cliente ${cliente}: ${s.totalTemp}`);
-          await sendMessage(sucursal.telefono, 
-            textMsg("⚠️ *ERROR*\n\nNo hay información de monto válida para este pedido.")
-          );
-          return res.sendStatus(200);
-        }
-        
-        // 🔥 PROTECCIÓN 5: Registrar en el historial de pagos procesados
-        const pagoKey = `${cliente}_${timestamp}`;
-        if (s.pagosProcesados && s.pagosProcesados[pagoKey]) {
-          console.log(`🛑 Pago ${pagoKey} ya fue procesado (historial)`);
-          await sendMessage(sucursal.telefono, 
-            textMsg("⚠️ *PAGO DUPLICADO*\n\nEste pago ya fue procesado anteriormente.")
-          );
-          return res.sendStatus(200);
-        }
-        
-        if (!s.pagosProcesados) s.pagosProcesados = {};
-        s.pagosProcesados[pagoKey] = {
-          estado: tipo,
-          timestamp: Date.now()
-        };
-        
-        // Marcar como procesado
         s.pagoProcesado = true;
         
         if (tipo === "ok") {
-          console.log(`✅ Confirmando pago para cliente ${cliente}`);
-          
-          // Enviar confirmación al cliente
           await sendMessage(cliente, textMsg(
             "✅ *¡PAGO CONFIRMADO!* ✅\n\n" +
             "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
@@ -382,7 +333,6 @@ app.post("/webhook", async (req, res) => {
             "¡Gracias por tu preferencia! 🙌"
           ));
           
-          // Notificar a la sucursal
           await sendMessage(sucursal.telefono, 
             textMsg(
               "━━━━━━━━━━━━━━━━━━━━━━\n" +
@@ -395,29 +345,17 @@ app.post("/webhook", async (req, res) => {
               "━━━━━━━━━━━━━━━━━━━━━━"
             )
           );
-          
-          return res.sendStatus(200);
-        }
-        
-        if (tipo === "no") {
-          console.log(`❌ Rechazando pago para cliente ${cliente}`);
-          
-          // Notificar al cliente
+        } else {
           await sendMessage(cliente, textMsg(
             "❌ *PAGO RECHAZADO* ❌\n\n" +
             "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
             `🏪 *${sucursal.emoji} ${sucursal.nombre}*\n\n` +
             "No pudimos verificar tu transferencia.\n\n" +
-            "Posibles causas:\n" +
-            "• El monto no coincide\n" +
-            "• La referencia es incorrecta\n" +
-            "• La imagen no es legible\n\n" +
             "📞 *Contacta a la sucursal para asistencia:*\n" +
             `${sucursal.telefono}\n\n` +
             "━━━━━━━━━━━━━━━━━━━━━━"
           ));
           
-          // Notificar a la sucursal
           await sendMessage(sucursal.telefono, 
             textMsg(
               "━━━━━━━━━━━━━━━━━━━━━━\n" +
@@ -430,9 +368,9 @@ app.post("/webhook", async (req, res) => {
               "━━━━━━━━━━━━━━━━━━━━━━"
             )
           );
-          
-          return res.sendStatus(200);
         }
+        
+        return res.sendStatus(200);
       }
     }
 
@@ -452,14 +390,14 @@ app.post("/webhook", async (req, res) => {
     const s = sessions[from];
     s.lastAction = now();
 
-    // ===== ANTI-SPAM EXTREMO =====
+    // ===== ANTI-SPAM =====
     if (s.lastInput === input && !TEXT_ONLY_STEPS.includes(s.step)) {
       console.log(`🛑 Anti-spam: input repetido de ${from}`);
       return res.sendStatus(200);
     }
     s.lastInput = input;
 
-    // ===== VALIDACIÓN ESTRICTA =====
+    // ===== VALIDACIÓN =====
     if (!s.sucursal && s.step !== "seleccionar_sucursal") {
       resetSession(from);
       await sendMessage(from, seleccionarSucursal());
@@ -490,11 +428,10 @@ app.post("/webhook", async (req, res) => {
     let reply = null;
 
     // =======================
-    // 🎯 FLUJO PRINCIPAL
+    // 🎯 FLUJO PRINCIPAL CORREGIDO
     // =======================
     switch (s.step) {
 
-      // ===== SELECCIÓN DE SUCURSAL =====
       case "seleccionar_sucursal":
         if (input === "revolucion") {
           s.sucursal = "revolucion";
@@ -512,7 +449,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== BIENVENIDA PERSONALIZADA =====
       case "welcome":
         if (input === "pedido") {
           s.step = "pizza_type";
@@ -527,7 +463,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== SELECCIÓN DE PIZZA =====
       case "pizza_type":
         if (!PRICES[input]) {
           reply = merge(
@@ -536,6 +471,7 @@ app.post("/webhook", async (req, res) => {
           );
           break;
         }
+        console.log(`✅ Pizza elegida: ${input}`);
         s.currentPizza.type = input;
         s.currentPizza.extras = [];
         s.currentPizza.crust = false;
@@ -543,48 +479,56 @@ app.post("/webhook", async (req, res) => {
         reply = sizeButtons(s.currentPizza.type);
         break;
 
-      // ===== TAMAÑO =====
+      // ===== 🔥 CASE SIZE CORREGIDO =====
       case "size":
         if (!["grande", "extragrande"].includes(input)) {
+          console.log(`❌ Tamaño no válido: ${input}`);
           reply = merge(
-            textMsg("❌ *TAMAÑO NO VÁLIDO*"),
+            textMsg("❌ *TAMAÑO NO VÁLIDO*\n\nSelecciona una opción válida:"),
             sizeButtons(s.currentPizza.type)
           );
           break;
         }
+        
+        console.log(`✅ Tamaño seleccionado: ${input}`);
         s.currentPizza.size = input;
         s.step = "ask_cheese_crust";
         reply = askCrust();
         break;
 
-      // ===== ORILLA DE QUESO =====
       case "ask_cheese_crust":
         if (input === "crust_si") {
+          console.log("✅ Con orilla de queso");
           s.currentPizza.crust = true;
+          s.step = "ask_extra";
+          reply = askExtra();
         } else if (input === "crust_no") {
+          console.log("❌ Sin orilla de queso");
           s.currentPizza.crust = false;
+          s.step = "ask_extra";
+          reply = askExtra();
         } else {
+          console.log(`❌ Opción no válida en orilla: ${input}`);
           reply = merge(
             textMsg("❌ *OPCIÓN NO VÁLIDA*"),
             askCrust()
           );
-          break;
         }
-        s.step = "ask_extra";
-        reply = askExtra();
         break;
 
-      // ===== PREGUNTA EXTRAS =====
       case "ask_extra":
         if (input === "extra_si") {
+          console.log("➕ Usuario quiere extras");
           s.step = "choose_extra";
           reply = extraList();
         } else if (input === "extra_no") {
+          console.log("❌ Usuario no quiere extras");
           s.pizzas.push({ ...s.currentPizza });
           s.currentPizza = { extras: [], crust: false };
           s.step = "another_pizza";
           reply = anotherPizza();
         } else {
+          console.log(`❌ Opción no válida en ask_extra: ${input}`);
           reply = merge(
             textMsg("❌ *OPCIÓN NO VÁLIDA*"),
             askExtra()
@@ -592,7 +536,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== SELECCIÓN DE EXTRA =====
       case "choose_extra":
         if (!Object.keys(EXTRAS).includes(input)) {
           reply = merge(
@@ -601,22 +544,25 @@ app.post("/webhook", async (req, res) => {
           );
           break;
         }
+        console.log(`✅ Extra elegido: ${input}`);
         s.currentPizza.extras.push(input);
         s.step = "more_extras";
         reply = askMoreExtras();
         break;
 
-      // ===== ¿OTRO EXTRA? =====
       case "more_extras":
         if (input === "extra_si") {
+          console.log("➕ Usuario quiere otro extra");
           s.step = "choose_extra";
           reply = extraList();
         } else if (input === "extra_no") {
+          console.log("❌ Usuario terminó extras");
           s.pizzas.push({ ...s.currentPizza });
           s.currentPizza = { extras: [], crust: false };
           s.step = "another_pizza";
           reply = anotherPizza();
         } else {
+          console.log(`❌ Opción no válida en more_extras: ${input}`);
           reply = merge(
             textMsg("❌ *OPCIÓN NO VÁLIDA*"),
             askMoreExtras()
@@ -624,15 +570,17 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== ¿OTRA PIZZA? =====
       case "another_pizza":
         if (input === "si") {
+          console.log("🍕 Usuario quiere otra pizza");
           s.step = "pizza_type";
           reply = pizzaList();
         } else if (input === "no") {
+          console.log("✅ Usuario terminó pizzas");
           s.step = "delivery_method";
           reply = deliveryButtons(s);
         } else {
+          console.log(`❌ Opción no válida en another_pizza: ${input}`);
           reply = merge(
             textMsg("❌ *OPCIÓN NO VÁLIDA*"),
             anotherPizza()
@@ -640,7 +588,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== MÉTODO DE ENTREGA =====
       case "delivery_method":
         const sucursal = SUCURSALES[s.sucursal];
         
@@ -694,7 +641,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== MÉTODO DE PAGO =====
       case "ask_payment":
         if (s.pagoForzado) {
           if (input !== "pago_transferencia") {
@@ -735,7 +681,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== DIRECCIÓN =====
       case "ask_address":
         if (!rawText || rawText.length < 5) {
           reply = textMsg(
@@ -753,7 +698,6 @@ app.post("/webhook", async (req, res) => {
         );
         break;
 
-      // ===== TELÉFONO =====
       case "ask_phone":
         if (!rawText || rawText.length < 8) {
           reply = textMsg(
@@ -767,7 +711,6 @@ app.post("/webhook", async (req, res) => {
         reply = confirmacionFinal(s);
         break;
 
-      // ===== NOMBRE PARA RECOGER =====
       case "ask_pickup_name":
         if (!rawText || rawText.length < 3) {
           reply = textMsg(
@@ -781,7 +724,6 @@ app.post("/webhook", async (req, res) => {
         reply = confirmacionFinal(s);
         break;
 
-      // ===== CONFIRMACIÓN FINAL =====
       case "confirmacion_final":
         if (input === "confirmar") {
           if (s.pagoMetodo === "Transferencia") {
@@ -815,7 +757,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== ESPERANDO COMPROBANTE =====
       case "ask_comprobante":
         reply = textMsg(
           "📸 *ENVÍA TU COMPROBANTE*\n\n" +
@@ -826,7 +767,6 @@ app.post("/webhook", async (req, res) => {
         );
         break;
 
-      // ===== ESPERANDO CONFIRMACIÓN =====
       case "esperando_confirmacion":
         reply = textMsg(
           "⏳ *PAGO EN VERIFICACIÓN*\n\n" +
@@ -1353,7 +1293,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot multisucursal V5 (Protección Total) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot multisucursal V6 (Corregido) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
