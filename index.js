@@ -103,7 +103,7 @@ const SUCURSALES = {
   },
   obrera: {
     nombre: "PIZZERIA DE VILLA LA OBRERA",
-    direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
+    direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih",
     emoji: "🏪",
     telefono: "5216393992508",
     domicilio: true,
