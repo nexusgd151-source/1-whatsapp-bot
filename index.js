@@ -9,13 +9,13 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // =======================
-// 🏪 CONFIGURACIÓN DE SUCURSALES (EMOJI UNIFICADO)
+// 🏪 CONFIGURACIÓN DE SUCURSALES
 // =======================
 const SUCURSALES = {
   revolucion: {
     nombre: "VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
-    emoji: "🏪", // 🔥 MISMO EMOJI PARA AMBAS
+    emoji: "🏪",
     telefono: "5216391946965",
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
@@ -27,7 +27,7 @@ const SUCURSALES = {
   obrera: {
     nombre: "VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
-    emoji: "🏪", // 🔥 MISMO EMOJI PARA AMBAS
+    emoji: "🏪",
     telefono: "5216391759607",
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
@@ -77,7 +77,7 @@ const PRICES = {
     emoji: "➕"
   },
   envio: {
-    nombre: "Envío",
+    nombre: "Envío a domicilio",
     precio: 40,
     emoji: "🚚"
   }
@@ -118,6 +118,7 @@ const resetSession = (from) => {
     pagoForzado: false,
     totalTemp: 0,
     comprobanteEnviado: false,
+    comprobanteCount: 0, // 🔥 CONTADOR DE COMPROBANTES
     pagoMetodo: null,
     delivery: null,
     address: null,
@@ -179,37 +180,46 @@ app.post("/webhook", async (req, res) => {
     const msg = value.messages[0];
     const from = msg.from;
 
-    // 🔥 DETECTAR IMAGEN (COMPROBANTE)
+    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - CON LÍMITE DE 1
     if (msg.type === "image" || msg.type === "document") {
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
       
       if (!sessions[from]) {
-        await sendMessage(from, textMsg("❌ *ERROR*\n\nNo tienes un pedido pendiente."));
+        await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
         return res.sendStatus(200);
       }
       
       const s = sessions[from];
       if (!s.sucursal) {
-        await sendMessage(from, textMsg("❌ *ERROR*\n\nSelecciona una sucursal primero."));
+        await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
         return res.sendStatus(200);
       }
       
       const sucursal = SUCURSALES[s.sucursal];
       
+      // 🔥 VERIFICAR QUE ESTÉ EN EL PASO CORRECTO
       if (s.step !== "ask_comprobante" && s.step !== "esperando_confirmacion") {
-        await sendMessage(from, textMsg("❌ *ERROR*\n\nNo estamos esperando un comprobante."));
+        await sendMessage(from, textMsg("❌ No estamos esperando un comprobante."));
         return res.sendStatus(200);
       }
       
-      if (s.pagoProcesado) {
-        await sendMessage(from, textMsg("❌ *ERROR*\n\nEste pago ya fue procesado."));
+      // 🔥 VERIFICAR QUE NO HAYA ENVIADO YA UN COMPROBANTE
+      if (s.comprobanteCount >= 1) {
+        await sendMessage(from, textMsg(
+          "⚠️ *COMPROBANTE YA ENVIADO*\n\n" +
+          "Ya recibimos tu comprobante anteriormente.\n" +
+          "Espera a que lo verifiquemos. ⏳"
+        ));
         return res.sendStatus(200);
       }
+      
+      // 🔥 INCREMENTAR CONTADOR
+      s.comprobanteCount++;
       
       await sendMessage(from, textMsg(
         "✅ *COMPROBANTE RECIBIDO*\n\n" +
-        "📸 Hemos recibido tu comprobante.\n" +
-        "⏳ Lo estamos verificando...\n\n" +
+        "Hemos recibido tu comprobante.\n" +
+        "Lo estamos verificando...\n\n" +
         "Te confirmaremos en minutos. ¡Gracias! 🙌"
       ));
       
@@ -222,21 +232,26 @@ app.post("/webhook", async (req, res) => {
         if (msg.document.mime_type?.startsWith("image/")) {
           mediaPayload = { id: msg.document.id };
         } else {
-          await sendMessage(from, textMsg("❌ *ERROR*\n\nEl archivo no es una imagen. Envía una foto."));
+          await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
           return res.sendStatus(200);
         }
       }
       
       const pagoId = `${from}_${s.sucursal}_${Date.now()}`;
       s.pagoId = pagoId;
+      const horaActual = new Date().toLocaleString('es-MX', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: true 
+      });
       
       const caption = 
-        "🖼️ *NUEVO COMPROBANTE*\n" +
-        "━━━━━━━━━━━━━━━━\n\n" +
+        `🖼️ *COMPROBANTE DE PAGO*\n` +
+        `━━━━━━━━━━━━━━━━━━\n\n` +
         `🏪 *${sucursal.nombre}*\n` +
         `👤 Cliente: ${from}\n` +
         `💰 Monto: $${s.totalTemp}\n` +
-        `🕒 ${new Date().toLocaleString('es-MX')}`;
+        `⏰ Hora: ${horaActual}`;
       
       await sendMessage(sucursal.telefono, {
         type: mediaType,
@@ -244,11 +259,12 @@ app.post("/webhook", async (req, res) => {
         caption: caption
       });
       
+      // 🔥 MENSAJE DE VERIFICACIÓN CON HORA
       await sendMessage(sucursal.telefono, {
         type: "interactive",
         interactive: {
           type: "button",
-          body: { text: `🔍 *VERIFICAR PAGO - $${s.totalTemp}*` },
+          body: { text: `🔍 *VERIFICAR PAGO - $${s.totalTemp}* (${horaActual})` },
           action: {
             buttons: [
               { type: "reply", reply: { id: `pago_ok_${pagoId}`, title: "✅ CONFIRMAR" } },
@@ -302,7 +318,7 @@ app.post("/webhook", async (req, res) => {
             "✅ *¡PAGO CONFIRMADO!*\n\n" +
             `🏪 *${sucursal.nombre}*\n\n` +
             "Tu pedido ya está en preparación.\n" +
-            "⏱️ *Tiempo estimado:* 30-40 min\n\n" +
+            "⏱️ Tiempo estimado: 30-40 min\n\n" +
             "¡Gracias por tu preferencia! 🙌"
           ));
           
@@ -488,12 +504,10 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== 🔥 MÉTODO DE ENTREGA (AHORA MÁS SIMPLE) =====
       case "delivery_method":
         const sucursal = SUCURSALES[s.sucursal];
         
         if (!sucursal.domicilio) {
-          // Sucursal sin domicilio
           if (input === "recoger") {
             s.delivery = false;
             s.step = "ask_pickup_name";
@@ -505,7 +519,6 @@ app.post("/webhook", async (req, res) => {
             );
           }
         } else {
-          // Sucursal CON domicilio
           if (input === "domicilio") {
             s.delivery = true;
             s.totalTemp = calcularTotal(s);
@@ -528,7 +541,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // ===== PAGO (SOLO PARA DOMICILIO) =====
       case "ask_payment":
         if (s.pagoForzado) {
           if (input !== "pago_transferencia") {
@@ -540,7 +552,7 @@ app.post("/webhook", async (req, res) => {
           if (input === "pago_efectivo") {
             s.pagoMetodo = "Efectivo";
             s.step = "ask_address";
-            reply = textMsg("📍 *DIRECCIÓN*\n\nEscribe tu dirección:");
+            reply = textMsg("📍 *DIRECCIÓN*\n\nEscribe tu dirección completa:");
             break;
           } else if (input === "pago_transferencia") {
             s.pagoMetodo = "Transferencia";
@@ -574,7 +586,6 @@ app.post("/webhook", async (req, res) => {
         reply = confirmacionFinal(s);
         break;
 
-      // ===== NOMBRE PARA RECOGER (SIN PASAR POR PAGO) =====
       case "ask_pickup_name":
         if (!rawText || rawText.length < 3) {
           reply = textMsg("⚠️ Nombre inválido. Intenta de nuevo:");
@@ -582,7 +593,7 @@ app.post("/webhook", async (req, res) => {
         }
         s.pickupName = rawText;
         
-        // 🔥 PARA RECOGER: ENVIAR RESUMEN DIRECTAMENTE (SIN PAGO)
+        // 🔥 PARA RECOGER: ENVIAR RESUMEN DIRECTAMENTE
         const resumenCliente = buildClienteSummary(s);
         const resumenNegocio = buildNegocioSummary(s);
         
@@ -641,7 +652,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI (MÁS LIMPIAS)
+// 🎨 FUNCIONES UI (AMIGABLES Y VISUALES)
 // =======================
 
 const seleccionarSucursal = () => {
@@ -833,13 +844,14 @@ const calcularTotal = (s) => {
 };
 
 // =======================
-// 📝 RESUMENES (VERSIÓN LIMPIA)
+// 📝 RESUMENES (VERSIÓN AMIGABLE)
 // =======================
 
 const buildClienteSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
   let total = 0;
   let text = `✅ *PEDIDO CONFIRMADO*\n🏪 ${suc.nombre}\n\n`;
+  text += `━━━━━━━━━━━━━━━━━━\n\n`;
   
   s.pizzas.forEach((p, i) => {
     const precio = PRICES[p.type][p.size];
@@ -848,27 +860,34 @@ const buildClienteSummary = (s) => {
     text += `   ${p.type} (${p.size})\n`;
     if (p.crust) {
       total += PRICES.orilla_queso.precio;
-      text += `   🧀 Orilla\n`;
+      text += `   🧀 Orilla de queso\n`;
     }
     if (p.extras?.length) {
       const extrasTotal = p.extras.length * PRICES.extra.precio;
       total += extrasTotal;
-      text += `   ➕ ${p.extras.join(", ")}\n`;
+      text += `   ➕ Extras: ${p.extras.join(", ")}\n`;
     }
     text += `   $${precio}\n\n`;
   });
   
+  text += `━━━━━━━━━━━━━━━━━━\n`;
+  
   if (s.delivery) {
     total += PRICES.envio.precio;
-    text += `🚚 *Envío*: $${PRICES.envio.precio}\n`;
+    text += `🚚 *Envío a domicilio*\n`;
+    text += `   +$${PRICES.envio.precio}\n`;
     text += `📍 ${s.address}\n`;
     text += `📞 ${s.phone}\n\n`;
   } else {
-    text += `🏪 *Recoge*: ${s.pickupName}\n\n`;
+    text += `🏪 *Recoger en tienda*\n`;
+    text += `   Nombre: ${s.pickupName}\n\n`;
   }
   
-  text += `💰 *TOTAL: $${total} MXN*\n\n`;
-  text += `✨ ¡Gracias por tu pedido!`;
+  text += `━━━━━━━━━━━━━━━━━━\n`;
+  text += `💰 *TOTAL: $${total} MXN*\n`;
+  text += `━━━━━━━━━━━━━━━━━━\n\n`;
+  text += `✨ ¡Gracias por tu pedido!\n`;
+  text += `🍕 Pizzerías Villa`;
   
   return textMsg(text);
 };
@@ -877,42 +896,49 @@ const buildNegocioSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
   let total = 0;
   let text = `🛎️ *NUEVO PEDIDO*\n🏪 ${suc.nombre}\n\n`;
-  text += `👤 Cliente: ${s.clientNumber}\n\n`;
+  text += `━━━━━━━━━━━━━━━━━━\n\n`;
+  text += `👤 *Cliente:* ${s.clientNumber}\n\n`;
   
   s.pizzas.forEach((p, i) => {
     const precio = PRICES[p.type][p.size];
     total += precio;
-    text += `🍕 Pizza ${i+1}: ${p.type} ${p.size}\n`;
+    text += `🍕 *Pizza ${i+1}*\n`;
+    text += `   ${p.type} (${p.size})\n`;
     if (p.crust) {
       total += PRICES.orilla_queso.precio;
-      text += `   🧀 Orilla\n`;
+      text += `   🧀 Orilla de queso\n`;
     }
     if (p.extras?.length) {
       const extrasTotal = p.extras.length * PRICES.extra.precio;
       total += extrasTotal;
-      text += `   ➕ ${p.extras.join(", ")}\n`;
+      text += `   ➕ Extras: ${p.extras.join(", ")}\n`;
     }
     text += `   $${precio}\n`;
   });
   
-  text += `\n💰 *TOTAL: $${total}*\n`;
+  text += `\n━━━━━━━━━━━━━━━━━━\n`;
+  text += `💰 *TOTAL: $${total}*\n`;
   
   if (s.delivery) {
-    text += `🚚 Domicilio\n`;
-    text += `📍 ${s.address}\n`;
-    text += `📞 ${s.phone}\n`;
+    text += `🚚 *Domicilio*\n`;
+    text += `   Envío: +$${PRICES.envio.precio}\n`;
+    text += `   📍 ${s.address}\n`;
+    text += `   📞 ${s.phone}\n`;
   } else {
-    text += `🏪 Recoge: ${s.pickupName}\n`;
+    text += `🏪 *Recoger*\n`;
+    text += `   Nombre: ${s.pickupName}\n`;
   }
   
   if (s.pagoMetodo) {
-    text += `💳 Pago: ${s.pagoMetodo}\n`;
+    text += `💳 *Pago:* ${s.pagoMetodo}\n`;
     if (s.pagoMetodo === "Transferencia") {
-      text += `   Comprobante: ${s.comprobanteEnviado ? "✅" : "⏳"}\n`;
+      text += `   Comprobante: ${s.comprobanteEnviado ? "✅ Recibido" : "⏳ Pendiente"}\n`;
     }
   }
   
-  text += `\n🕒 ${new Date().toLocaleString('es-MX')}`;
+  text += `\n🕒 ${new Date().toLocaleString('es-MX')}\n`;
+  text += `━━━━━━━━━━━━━━━━━━\n`;
+  text += `✨ Prepáralo con amor`;
   
   return textMsg(text);
 };
@@ -961,7 +987,7 @@ const list = (text, sections) => ({
     type: "list",
     body: { text },
     action: {
-      button: "📋 Ver",
+      button: "📋 Ver opciones",
       sections
     }
   }
@@ -998,6 +1024,7 @@ setInterval(() => {
   Object.keys(sessions).forEach(key => {
     if (nowTime - sessions[key].lastAction > SESSION_TIMEOUT) {
       delete sessions[key];
+      console.log(`🧹 Sesión expirada: ${key}`);
     }
   });
 }, 60000);
@@ -1007,5 +1034,8 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V9 (Limpio) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V10 (Amigable y Visual) corriendo en puerto ${PORT}`);
+  console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
+  console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
+  console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
 });
