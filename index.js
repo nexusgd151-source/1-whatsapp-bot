@@ -64,7 +64,7 @@ async function procesarMensajeSeguro(cliente, funcion) {
   // Verificar tiempo mínimo entre mensajes
   const ahora = Date.now();
   if (ahora - messageQueue[cliente].ultimoMensaje < MIN_TIME_BETWEEN_MESSAGES) {
-    console.log(`⏱️ Cliente ${cliente} envió mensajes muy rápido, ignorando...`);
+    console.log(`⏱️ Cliente ${cliente} envió mensajes muy rápido, ignorando..`);
     return null;
   }
   
