@@ -134,7 +134,7 @@ const PRICES = {
   hawaiana: { 
     nombre: "Hawaiana", 
     grande: 150, 
-    extragrande: 210,
+    extragrande: 220,
     emoji: "🍍"
   },
   mexicana: { 
