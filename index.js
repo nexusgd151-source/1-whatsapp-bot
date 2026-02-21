@@ -13,10 +13,10 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 // =======================
 const SUCURSALES = {
   revolucion: {
-    nombre: "VILLA REVOLUCIÓN",
+    nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391946965",
+    telefono: "5216391283842",
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -25,7 +25,7 @@ const SUCURSALES = {
     }
   },
   obrera: {
-    nombre: "VILLA LA OBRERA",
+    nombre: "PIZZERIA DE VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216391759607",
