@@ -1,7 +1,5 @@
 const express = require("express");
 const fetch = require("node-fetch");
-const fs = require('fs');
-const path = require('path');
 
 const app = express();
 app.use(express.json());
@@ -9,27 +7,6 @@ app.use(express.json());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
-
-// =======================
-// 🚫 SISTEMA DE BLOQUEADOS PERMANENTE
-// =======================
-const BLOQUEADOS_FILE = path.join(__dirname, 'bloqueados.json');
-
-// Cargar bloqueados al iniciar
-let blockedNumbers = new Set();
-try {
-  const data = fs.readFileSync(BLOQUEADOS_FILE, 'utf8');
-  blockedNumbers = new Set(JSON.parse(data));
-  console.log(`📁 ${blockedNumbers.size} números bloqueados cargados`);
-} catch (e) {
-  console.log("📁 No hay bloqueados previos, creando archivo...");
-  fs.writeFileSync(BLOQUEADOS_FILE, '[]');
-}
-
-// Función para guardar
-function guardarBloqueados() {
-  fs.writeFileSync(BLOQUEADOS_FILE, JSON.stringify(Array.from(blockedNumbers)));
-}
 
 // =======================
 // 🏪 CONFIGURACIÓN DE SUCURSALES
@@ -51,7 +28,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607",
+    telefono: "5216393992508",
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -141,7 +118,7 @@ const resetSession = (from) => {
     pagoForzado: false,
     totalTemp: 0,
     comprobanteEnviado: false,
-    comprobanteCount: 0,
+    comprobanteCount: 0, // 🔥 CONTADOR DE COMPROBANTES
     pagoMetodo: null,
     delivery: null,
     address: null,
@@ -169,31 +146,6 @@ app.get("/webhook", (req, res) => {
     return res.status(200).send(challenge);
   }
   res.sendStatus(403);
-});
-
-// =======================
-// 🚫 ENDPOINTS PARA GESTIONAR BLOQUEOS
-// =======================
-app.get("/bloquear/:numero", (req, res) => {
-  const numero = req.params.numero;
-  blockedNumbers.add(numero);
-  guardarBloqueados();
-  res.send(`✅ Número ${numero} bloqueado permanentemente`);
-});
-
-app.get("/desbloquear/:numero", (req, res) => {
-  const numero = req.params.numero;
-  if (blockedNumbers.has(numero)) {
-    blockedNumbers.delete(numero);
-    guardarBloqueados();
-    res.send(`✅ Número ${numero} desbloqueado`);
-  } else {
-    res.send(`⚠️ El número ${numero} no estaba bloqueado`);
-  }
-});
-
-app.get("/bloqueados", (req, res) => {
-  res.json(Array.from(blockedNumbers));
 });
 
 // =======================
@@ -228,18 +180,7 @@ app.post("/webhook", async (req, res) => {
     const msg = value.messages[0];
     const from = msg.from;
 
-    // 🚫 VERIFICAR SI EL NÚMERO ESTÁ BLOQUEADO
-    if (blockedNumbers.has(from)) {
-      console.log(`🚫 Número bloqueado intentó contactar: ${from}`);
-      await sendMessage(from, textMsg(
-        "🚫 *CUENTA BLOQUEADA*\n\n" +
-        "Has sido bloqueado por comportamiento inapropiado.\n" +
-        "Si crees que es un error, contacta a la pizzería."
-      ));
-      return res.sendStatus(200);
-    }
-
-    // 🔥 DETECTAR IMAGEN (COMPROBANTE)
+    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - CON LÍMITE DE 1
     if (msg.type === "image" || msg.type === "document") {
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
       
@@ -256,11 +197,13 @@ app.post("/webhook", async (req, res) => {
       
       const sucursal = SUCURSALES[s.sucursal];
       
+      // 🔥 VERIFICAR QUE ESTÉ EN EL PASO CORRECTO
       if (s.step !== "ask_comprobante" && s.step !== "esperando_confirmacion") {
         await sendMessage(from, textMsg("❌ No estamos esperando un comprobante."));
         return res.sendStatus(200);
       }
       
+      // 🔥 VERIFICAR QUE NO HAYA ENVIADO YA UN COMPROBANTE
       if (s.comprobanteCount >= 1) {
         await sendMessage(from, textMsg(
           "⚠️ *COMPROBANTE YA ENVIADO*\n\n" +
@@ -270,6 +213,7 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
+      // 🔥 INCREMENTAR CONTADOR
       s.comprobanteCount++;
       
       await sendMessage(from, textMsg(
@@ -315,7 +259,7 @@ app.post("/webhook", async (req, res) => {
         caption: caption
       });
       
-      // 🔥 MENSAJE DE VERIFICACIÓN CON 3 BOTONES
+      // 🔥 MENSAJE DE VERIFICACIÓN CON HORA
       await sendMessage(sucursal.telefono, {
         type: "interactive",
         interactive: {
@@ -324,8 +268,7 @@ app.post("/webhook", async (req, res) => {
           action: {
             buttons: [
               { type: "reply", reply: { id: `pago_ok_${pagoId}`, title: "✅ CONFIRMAR" } },
-              { type: "reply", reply: { id: `pago_no_${pagoId}`, title: "❌ RECHAZAR" } },
-              { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
+              { type: "reply", reply: { id: `pago_no_${pagoId}`, title: "❌ RECHAZAR" } }
             ]
           }
         }
@@ -340,108 +283,66 @@ app.post("/webhook", async (req, res) => {
     // 🔥 DETECTAR RESPUESTA DE SUCURSAL
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
-      const fromSucursal = msg.from;
       
-      console.log(`🔍 Botón presionado: ${replyId} por ${fromSucursal}`);
-      
-      // ===== BOTÓN DE BLOQUEO =====
-      if (replyId.startsWith("bloquear_")) {
-        const numeroABloquear = replyId.replace("bloquear_", "");
-        
-        blockedNumbers.add(numeroABloquear);
-        guardarBloqueados();
-        
-        await sendMessage(fromSucursal, textMsg(
-          "✅ *CLIENTE BLOQUEADO*\n\n" +
-          `Número: ${numeroABloquear}\n` +
-          "Ya no podrá hacer pedidos."
-        ));
-        
-        try {
-          await sendMessage(numeroABloquear, textMsg(
-            "🚫 *HAS SIDO BLOQUEADO*\n\n" +
-            "Por comportamiento inapropiado, no podrás seguir usando el bot.\n" +
-            "Si crees que es un error, contacta a la pizzería."
-          ));
-        } catch (e) {}
-        
-        return res.sendStatus(200);
-      }
-      
-      // ===== BOTÓN CONFIRMAR PAGO =====
-      if (replyId.startsWith("pago_ok_")) {
+      if (replyId.startsWith("pago_ok_") || replyId.startsWith("pago_no_")) {
         const partes = replyId.split("_");
+        const tipo = partes[1];
         const cliente = partes[2];
         const sucursalKey = partes[3];
         
         const sucursal = SUCURSALES[sucursalKey];
         
         if (!sucursal || !sessions[cliente]) {
-          await sendMessage(fromSucursal, textMsg("⚠️ Cliente no encontrado"));
           return res.sendStatus(200);
         }
         
         const s = sessions[cliente];
         
         if (s.pagoProcesado) {
-          await sendMessage(fromSucursal, textMsg("⚠️ Pago ya procesado"));
+          await sendMessage(sucursal.telefono, textMsg("⚠️ Pago ya procesado"));
           return res.sendStatus(200);
         }
         
         s.pagoProcesado = true;
         
-        if (!s.resumenEnviado) {
-          await sendMessage(cliente, buildClienteSummary(s));
-          await sendMessage(sucursal.telefono, buildNegocioSummary(s));
-          s.resumenEnviado = true;
+        if (tipo === "ok") {
+          // Enviar resumen si no se había enviado
+          if (!s.resumenEnviado) {
+            await sendMessage(cliente, buildClienteSummary(s));
+            await sendMessage(sucursal.telefono, buildNegocioSummary(s));
+            s.resumenEnviado = true;
+          }
+          
+          // Mensaje de confirmación al cliente
+          await sendMessage(cliente, textMsg(
+            "✅ *¡PAGO CONFIRMADO!*\n\n" +
+            `🏪 *${sucursal.nombre}*\n\n` +
+            "Tu pedido ya está en preparación.\n" +
+            "⏱️ Tiempo estimado: 30-40 min\n\n" +
+            "¡Gracias por tu preferencia! 🙌"
+          ));
+          
+          // Mensaje a la sucursal
+          await sendMessage(sucursal.telefono, 
+            textMsg(
+              "✅ *PAGO CONFIRMADO*\n\n" +
+              `👤 Cliente: ${cliente}\n` +
+              `💰 Monto: $${s.totalTemp}\n\n` +
+              "El pedido puede prepararse."
+            )
+          );
+        } else {
+          await sendMessage(cliente, textMsg(
+            "❌ *PAGO RECHAZADO*\n\n" +
+            `🏪 *${sucursal.nombre}*\n\n` +
+            "No pudimos verificar tu transferencia.\n" +
+            `📞 Contacta: ${sucursal.telefono}`
+          ));
+          
+          await sendMessage(sucursal.telefono, 
+            textMsg(`❌ *PAGO RECHAZADO*\n\nCliente: ${cliente}\nMonto: $${s.totalTemp}`)
+          );
         }
-        
-        await sendMessage(cliente, textMsg(
-          "✅ *¡PAGO CONFIRMADO!*\n\n" +
-          `🏪 *${sucursal.nombre}*\n\n` +
-          "Tu pedido ya está en preparación.\n" +
-          "⏱️ Tiempo estimado: 30-40 min\n\n" +
-          "¡Gracias por tu preferencia! 🙌"
-        ));
-        
-        await sendMessage(fromSucursal, textMsg(
-          "✅ *PAGO CONFIRMADO*\n\n" +
-          `Cliente: ${cliente}\n` +
-          `Monto: $${s.totalTemp}\n\n` +
-          "El pedido puede prepararse."
-        ));
-        
-        return res.sendStatus(200);
-      }
-      
-      // ===== BOTÓN RECHAZAR PAGO =====
-      if (replyId.startsWith("pago_no_")) {
-        const partes = replyId.split("_");
-        const cliente = partes[2];
-        const sucursalKey = partes[3];
-        
-        const sucursal = SUCURSALES[sucursalKey];
-        
-        if (!sucursal || !sessions[cliente]) {
-          await sendMessage(fromSucursal, textMsg("⚠️ Cliente no encontrado"));
-          return res.sendStatus(200);
-        }
-        
-        const s = sessions[cliente];
-        s.pagoProcesado = true;
-        
-        await sendMessage(cliente, textMsg(
-          "❌ *PAGO RECHAZADO*\n\n" +
-          `🏪 *${sucursal.nombre}*\n\n` +
-          "No pudimos verificar tu transferencia.\n" +
-          `📞 Contacta: ${sucursal.telefono}`
-        ));
-        
-        await sendMessage(fromSucursal, textMsg(
-          `❌ *PAGO RECHAZADO*\n\n` +
-          `Cliente: ${cliente}\n` +
-          `Monto: $${s.totalTemp}`
-        ));
         
         return res.sendStatus(200);
       }
@@ -463,6 +364,7 @@ app.post("/webhook", async (req, res) => {
     const s = sessions[from];
     s.lastAction = now();
 
+    // Anti-spam
     if (s.lastInput === input && !TEXT_ONLY_STEPS.includes(s.step)) {
       return res.sendStatus(200);
     }
@@ -691,6 +593,7 @@ app.post("/webhook", async (req, res) => {
         }
         s.pickupName = rawText;
         
+        // 🔥 PARA RECOGER: ENVIAR RESUMEN DIRECTAMENTE
         const resumenCliente = buildClienteSummary(s);
         const resumenNegocio = buildNegocioSummary(s);
         
@@ -714,6 +617,7 @@ app.post("/webhook", async (req, res) => {
               "✅ *Envía la FOTO del comprobante*"
             );
           } else {
+            // Efectivo: enviar resumen directo
             const resumenCliente = buildClienteSummary(s);
             const resumenNegocio = buildNegocioSummary(s);
             
@@ -748,7 +652,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI
+// 🎨 FUNCIONES UI (AMIGABLES Y VISUALES)
 // =======================
 
 const seleccionarSucursal = () => {
@@ -940,7 +844,7 @@ const calcularTotal = (s) => {
 };
 
 // =======================
-// 📝 RESUMENES
+// 📝 RESUMENES (VERSIÓN AMIGABLE)
 // =======================
 
 const buildClienteSummary = (s) => {
@@ -1130,11 +1034,8 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V11 (Con bloqueo permanente) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V10 (Amigable y Visual) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
-  console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
-  console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
-  console.log(`📋 Lista bloqueados: /bloqueados`);
 });
