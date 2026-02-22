@@ -15,7 +15,6 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 // =======================
 const BLOQUEADOS_FILE = path.join(__dirname, 'bloqueados.json');
 
-// Cargar bloqueados al iniciar
 let blockedNumbers = new Set();
 try {
   const data = fs.readFileSync(BLOQUEADOS_FILE, 'utf8');
@@ -26,7 +25,6 @@ try {
   fs.writeFileSync(BLOQUEADOS_FILE, '[]');
 }
 
-// Función para guardar
 function guardarBloqueados() {
   fs.writeFileSync(BLOQUEADOS_FILE, JSON.stringify(Array.from(blockedNumbers)));
 }
@@ -64,6 +62,10 @@ const SUCURSALES = {
 const SESSION_TIMEOUT = 5 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
 
+// ⏱️ CONTROL DE TIEMPO ENTRE PEDIDOS
+const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000; // 5 minutos
+const MAX_PEDIDOS_POR_DIA = 5; // Máximo 5 pedidos por día
+
 const PRICES = {
   pepperoni: { 
     nombre: "Pepperoni", 
@@ -80,7 +82,7 @@ const PRICES = {
   hawaiana: { 
     nombre: "Hawaiana", 
     grande: 150, 
-    extragrande: 220,
+    extragrande: 220, // ✅ CORREGIDO: $220
     emoji: "🍍"
   },
   mexicana: { 
@@ -149,12 +151,69 @@ const resetSession = (from) => {
     pickupName: null,
     pagoProcesado: false,
     pagosProcesados: {},
-    resumenEnviado: false
+    resumenEnviado: false,
+    ultimoPedido: 0,
+    pedidosHoy: 0,
+    fechaUltimoPedido: null,
+    pagoResultado: null,
+    pagoProcesadoPor: null,
+    pagoProcesadoEn: null
   };
 };
 
 const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
+
+// =======================
+// ⏱️ FUNCIONES DE CONTROL DE TIEMPO
+// =======================
+function puedeHacerPedido(from) {
+  const ahora = Date.now();
+  const s = sessions[from];
+  
+  if (!s) return { permitido: true };
+  
+  if (s.ultimoPedido > 0 && (ahora - s.ultimoPedido) < TIEMPO_MINIMO_ENTRE_PEDIDOS) {
+    const minutosRestantes = Math.ceil((TIEMPO_MINIMO_ENTRE_PEDIDOS - (ahora - s.ultimoPedido)) / 60000);
+    return {
+      permitido: false,
+      razon: "TIEMPO",
+      minutos: minutosRestantes,
+      mensaje: `⚠️ *DEBES ESPERAR ${minutosRestantes} MINUTOS* ⚠️\n\nPara evitar spam, solo puedes hacer un pedido cada 5 minutos.\n\nIntenta de nuevo en ${minutosRestantes} minutos. ⏳`
+    };
+  }
+  
+  const hoy = new Date().toDateString();
+  if (s.fechaUltimoPedido !== hoy) {
+    s.pedidosHoy = 0;
+    s.fechaUltimoPedido = hoy;
+  }
+  
+  if (s.pedidosHoy >= MAX_PEDIDOS_POR_DIA) {
+    return {
+      permitido: false,
+      razon: "LIMITE_DIARIO",
+      mensaje: `⚠️ *LÍMITE DIARIO ALCANZADO* ⚠️\n\nHoy ya realizaste ${MAX_PEDIDOS_POR_DIA} pedidos.\n\nVuelve mañana para hacer otro pedido. 🍕`
+    };
+  }
+  
+  return { permitido: true };
+}
+
+function registrarPedido(from) {
+  const s = sessions[from];
+  if (!s) return;
+  
+  s.ultimoPedido = Date.now();
+  
+  const hoy = new Date().toDateString();
+  if (s.fechaUltimoPedido !== hoy) {
+    s.pedidosHoy = 1;
+    s.fechaUltimoPedido = hoy;
+  } else {
+    s.pedidosHoy++;
+  }
+}
 
 // =======================
 // WEBHOOK - GET
@@ -315,7 +374,6 @@ app.post("/webhook", async (req, res) => {
         caption: caption
       });
       
-      // 🔥 MENSAJE DE VERIFICACIÓN CON 3 BOTONES
       await sendMessage(sucursal.telefono, {
         type: "interactive",
         interactive: {
@@ -337,14 +395,13 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
     
-    // 🔥 DETECTAR RESPUESTA DE SUCURSAL
+    // 🔥 DETECTAR RESPUESTA DE SUCURSAL - CON PROTECCIÓN
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
       const fromSucursal = msg.from;
       
       console.log(`🔍 Botón presionado: ${replyId} por ${fromSucursal}`);
       
-      // ===== BOTÓN DE BLOQUEO =====
       if (replyId.startsWith("bloquear_")) {
         const numeroABloquear = replyId.replace("bloquear_", "");
         
@@ -368,7 +425,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // ===== BOTÓN CONFIRMAR PAGO =====
       if (replyId.startsWith("pago_ok_")) {
         const partes = replyId.split("_");
         const cliente = partes[2];
@@ -384,11 +440,18 @@ app.post("/webhook", async (req, res) => {
         const s = sessions[cliente];
         
         if (s.pagoProcesado) {
-          await sendMessage(fromSucursal, textMsg("⚠️ Pago ya procesado"));
+          await sendMessage(fromSucursal, textMsg(
+            "⚠️ *PAGO YA PROCESADO*\n\n" +
+            "Este pago ya fue confirmado o rechazado anteriormente.\n" +
+            "Los botones ya no son válidos."
+          ));
           return res.sendStatus(200);
         }
         
         s.pagoProcesado = true;
+        s.pagoResultado = "CONFIRMADO";
+        s.pagoProcesadoPor = fromSucursal;
+        s.pagoProcesadoEn = new Date().toISOString();
         
         if (!s.resumenEnviado) {
           await sendMessage(cliente, buildClienteSummary(s));
@@ -408,13 +471,13 @@ app.post("/webhook", async (req, res) => {
           "✅ *PAGO CONFIRMADO*\n\n" +
           `Cliente: ${cliente}\n` +
           `Monto: $${s.totalTemp}\n\n` +
-          "El pedido puede prepararse."
+          "El pedido puede prepararse.\n\n" +
+          "🛑 *Los botones de este pago ya no son válidos.*"
         ));
         
         return res.sendStatus(200);
       }
       
-      // ===== BOTÓN RECHAZAR PAGO =====
       if (replyId.startsWith("pago_no_")) {
         const partes = replyId.split("_");
         const cliente = partes[2];
@@ -428,7 +491,20 @@ app.post("/webhook", async (req, res) => {
         }
         
         const s = sessions[cliente];
+        
+        if (s.pagoProcesado) {
+          await sendMessage(fromSucursal, textMsg(
+            "⚠️ *PAGO YA PROCESADO*\n\n" +
+            "Este pago ya fue confirmado o rechazado anteriormente.\n" +
+            "Los botones ya no son válidos."
+          ));
+          return res.sendStatus(200);
+        }
+        
         s.pagoProcesado = true;
+        s.pagoResultado = "RECHAZADO";
+        s.pagoProcesadoPor = fromSucursal;
+        s.pagoProcesadoEn = new Date().toISOString();
         
         await sendMessage(cliente, textMsg(
           "❌ *PAGO RECHAZADO*\n\n" +
@@ -440,7 +516,8 @@ app.post("/webhook", async (req, res) => {
         await sendMessage(fromSucursal, textMsg(
           `❌ *PAGO RECHAZADO*\n\n` +
           `Cliente: ${cliente}\n` +
-          `Monto: $${s.totalTemp}`
+          `Monto: $${s.totalTemp}\n\n` +
+          "🛑 *Los botones de este pago ya no son válidos.*"
         ));
         
         return res.sendStatus(200);
@@ -508,6 +585,12 @@ app.post("/webhook", async (req, res) => {
 
       case "welcome":
         if (input === "pedido") {
+          const check = puedeHacerPedido(from);
+          if (!check.permitido) {
+            await sendMessage(from, textMsg(check.mensaje));
+            reply = welcomeMessage(s);
+            break;
+          }
           s.step = "pizza_type";
           reply = pizzaList();
         } else if (input === "menu") {
@@ -691,6 +774,8 @@ app.post("/webhook", async (req, res) => {
         }
         s.pickupName = rawText;
         
+        registrarPedido(from);
+        
         const resumenCliente = buildClienteSummary(s);
         const resumenNegocio = buildNegocioSummary(s);
         
@@ -703,6 +788,8 @@ app.post("/webhook", async (req, res) => {
 
       case "confirmacion_final":
         if (input === "confirmar") {
+          registrarPedido(from);
+          
           if (s.pagoMetodo === "Transferencia") {
             s.step = "ask_comprobante";
             reply = textMsg(
@@ -748,7 +835,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI (CON PRECIOS VISIBLES)
+// 🎨 FUNCIONES UI
 // =======================
 
 const seleccionarSucursal = () => {
@@ -780,11 +867,11 @@ const menuText = (s) => {
     `📖 *MENÚ - ${suc.nombre}*\n\n` +
     `🍕 Pepperoni: $130 / $180\n` +
     `🍕 Carnes frías: $170 / $220\n` +
-    `🍕 Hawaiana: $150 / $210\n` +
+    `🍕 Hawaiana: $150 / $220\n` +
     `🍕 Mexicana: $200 / $250\n\n` +
     `🧀 Orilla de queso: +$40\n` +
     `➕ Extras: $15 c/u\n` +
-    `🚚 Envío: +$40\n\n` +  // 👈 PRECIO VISIBLE
+    `🚚 Envío: +$40\n\n` +
     `📍 ${suc.direccion}\n` +
     `🕒 ${suc.horario}`
   );
@@ -830,7 +917,7 @@ const askExtra = () => {
   return buttons(
     "➕ *¿AGREGAR EXTRAS?*",
     [
-      { id: "extra_si", title: "✅ Sí ($15 c/u)" },  // 👈 PRECIO VISIBLE
+      { id: "extra_si", title: "✅ Sí ($15 c/u)" },
       { id: "extra_no", title: "❌ No" },
       { id: "cancelar", title: "⏹️ Cancelar" }
     ]
@@ -852,7 +939,7 @@ const askMoreExtras = () => {
   return buttons(
     "➕ *¿OTRO EXTRA?*",
     [
-      { id: "extra_si", title: "✅ Sí ($15 c/u)" },  // 👈 PRECIO VISIBLE
+      { id: "extra_si", title: "✅ Sí ($15 c/u)" },
       { id: "extra_no", title: "❌ No" },
       { id: "cancelar", title: "⏹️ Cancelar" }
     ]
@@ -875,7 +962,7 @@ const deliveryButtons = (s) => {
   const opciones = [];
   
   if (suc.domicilio) {
-    opciones.push({ id: "domicilio", title: "🚚 A domicilio (+$40)" });  // 👈 PRECIO VISIBLE
+    opciones.push({ id: "domicilio", title: "🚚 A domicilio (+$40)" });
   }
   opciones.push({ id: "recoger", title: "🏪 Recoger en tienda" });
   opciones.push({ id: "cancelar", title: "❌ Cancelar" });
@@ -935,13 +1022,9 @@ const calcularTotal = (s) => {
     if (p.crust) total += PRICES.orilla_queso.precio;
     total += p.extras.length * PRICES.extra.precio;
   });
-  if (s.delivery) total += PRICES.envio.precio;  // 👈 +$40 si es domicilio
+  if (s.delivery) total += PRICES.envio.precio;
   return total;
 };
-
-// =======================
-// 📝 RESUMENES
-// =======================
 
 const buildClienteSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
@@ -1130,10 +1213,12 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V12 (Precios Visibles) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V13 (Protección Total) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
+  console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos`);
+  console.log(`📊 Límite diario: ${MAX_PEDIDOS_POR_DIA} pedidos por día`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
