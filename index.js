@@ -171,7 +171,7 @@ const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
 
 // =======================
-// ⏰ FUNCIÓN PARA VERIFICAR Y ENVIAR AVISOS DE SESIÓN
+// ⏰ FUNCIÓN PARA VERIFICAR Y ENVIAR AVISOS DE SESIÓN (RESPUESTA A MENSAJES)
 // =======================
 async function checkSessionWarning(from, s) {
   const tiempoInactivo = now() - s.lastAction;
@@ -202,6 +202,45 @@ async function checkSessionWarning(from, s) {
   
   return true;
 }
+
+// =======================
+// ⏰ VERIFICACIÓN AUTOMÁTICA DE SESIONES (CADA MINUTO)
+// =======================
+setInterval(async () => {
+  const ahora = now();
+  
+  for (const [from, s] of Object.entries(sessions)) {
+    const tiempoInactivo = ahora - s.lastAction;
+    
+    // Si ya pasó el tiempo de expiración (10 min)
+    if (tiempoInactivo > SESSION_TIMEOUT) {
+      console.log(`⏰ Sesión expirada automáticamente: ${from}`);
+      
+      await sendMessage(from, textMsg(
+        "⏰ *SESIÓN EXPIRADA*\n\n" +
+        "Llevas más de 10 minutos sin actividad.\n" +
+        "Tu pedido ha sido cancelado.\n\n" +
+        "Escribe *Hola* para comenzar de nuevo. 🍕"
+      )).catch(e => console.log("Error al enviar mensaje de expiración"));
+      
+      delete sessions[from];
+    }
+    // Aviso a los 5 minutos (solo una vez)
+    else if (tiempoInactivo > WARNING_TIME && !s.warningSent) {
+      console.log(`⏳ Enviando aviso a ${from} (${Math.floor(tiempoInactivo / 60000)} min inactivo)`);
+      
+      s.warningSent = true;
+      const minutosRestantes = Math.ceil((SESSION_TIMEOUT - tiempoInactivo) / 60000);
+      
+      await sendMessage(from, textMsg(
+        "⏳ *¿SIGUES AHÍ?*\n\n" +
+        `Llevas ${Math.floor(tiempoInactivo / 60000)} minutos sin actividad.\n` +
+        `Tu sesión expirará en ${minutosRestantes} minutos si no respondes.\n\n` +
+        "Responde para continuar con tu pedido. 🍕"
+      )).catch(e => console.log("Error al enviar aviso"));
+    }
+  }
+}, 60000); // Revisar cada minuto
 
 // =======================
 // ⏱️ FUNCIONES DE CONTROL DE TIEMPO ENTRE PEDIDOS
