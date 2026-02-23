@@ -59,7 +59,12 @@ const SUCURSALES = {
   }
 };
 
-const SESSION_TIMEOUT = 5 * 60 * 1000;
+// =======================
+// ⏰ CONFIGURACIÓN DE SESIÓN (10 MINUTOS)
+// =======================
+const SESSION_TIMEOUT = 10 * 60 * 1000; // 10 minutos
+const WARNING_TIME = 5 * 60 * 1000;      // Aviso a los 5 minutos
+
 const UMBRAL_TRANSFERENCIA = 450;
 
 // ⏱️ CONTROL DE TIEMPO ENTRE PEDIDOS
@@ -82,7 +87,7 @@ const PRICES = {
   hawaiana: { 
     nombre: "Hawaiana", 
     grande: 150, 
-    extragrande: 220, // ✅ CORREGIDO: $220
+    extragrande: 220,
     emoji: "🍍"
   },
   mexicana: { 
@@ -157,7 +162,8 @@ const resetSession = (from) => {
     fechaUltimoPedido: null,
     pagoResultado: null,
     pagoProcesadoPor: null,
-    pagoProcesadoEn: null
+    pagoProcesadoEn: null,
+    warningSent: false // Para no enviar múltiples avisos
   };
 };
 
@@ -165,7 +171,40 @@ const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
 
 // =======================
-// ⏱️ FUNCIONES DE CONTROL DE TIEMPO
+// ⏰ FUNCIÓN PARA VERIFICAR Y ENVIAR AVISOS DE SESIÓN
+// =======================
+async function checkSessionWarning(from, s) {
+  const tiempoInactivo = now() - s.lastAction;
+  
+  // Si ya pasó el tiempo de expiración
+  if (tiempoInactivo > SESSION_TIMEOUT) {
+    delete sessions[from];
+    await sendMessage(from, textMsg(
+      "⏰ *SESIÓN EXPIRADA*\n\n" +
+      "Llevas más de 10 minutos sin actividad.\n" +
+      "Tu pedido ha sido cancelado.\n\n" +
+      "Escribe *Hola* para comenzar de nuevo. 🍕"
+    ));
+    return false;
+  }
+  
+  // Aviso a los 5 minutos (solo una vez)
+  if (tiempoInactivo > WARNING_TIME && !s.warningSent) {
+    s.warningSent = true;
+    const minutosRestantes = Math.ceil((SESSION_TIMEOUT - tiempoInactivo) / 60000);
+    await sendMessage(from, textMsg(
+      "⏳ *¿SIGUES AHÍ?*\n\n" +
+      `Llevas ${Math.floor(tiempoInactivo / 60000)} minutos sin actividad.\n` +
+      `Tu sesión expirará en ${minutosRestantes} minutos si no respondes.\n\n` +
+      "Responde para continuar con tu pedido. 🍕"
+    ));
+  }
+  
+  return true;
+}
+
+// =======================
+// ⏱️ FUNCIONES DE CONTROL DE TIEMPO ENTRE PEDIDOS
 // =======================
 function puedeHacerPedido(from) {
   const ahora = Date.now();
@@ -298,6 +337,14 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
+    // 🔥 VERIFICAR SESIÓN Y ENVIAR AVISOS
+    if (sessions[from]) {
+      const sessionActiva = await checkSessionWarning(from, sessions[from]);
+      if (!sessionActiva) {
+        return res.sendStatus(200); // Sesión expirada, ya se envió mensaje
+      }
+    }
+
     // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image" || msg.type === "document") {
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
@@ -308,6 +355,9 @@ app.post("/webhook", async (req, res) => {
       }
       
       const s = sessions[from];
+      s.lastAction = now(); // Actualizar tiempo de actividad
+      s.warningSent = false; // Resetear aviso
+      
       if (!s.sucursal) {
         await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
         return res.sendStatus(200);
@@ -395,7 +445,7 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
     
-    // 🔥 DETECTAR RESPUESTA DE SUCURSAL - CON PROTECCIÓN
+    // 🔥 DETECTAR RESPUESTA DE SUCURSAL
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
       const fromSucursal = msg.from;
@@ -539,6 +589,7 @@ app.post("/webhook", async (req, res) => {
 
     const s = sessions[from];
     s.lastAction = now();
+    s.warningSent = false; // Resetear aviso cuando el usuario responde
 
     if (s.lastInput === input && !TEXT_ONLY_STEPS.includes(s.step)) {
       return res.sendStatus(200);
@@ -1213,12 +1264,13 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V13 (Protección Total) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V14 (Sesión 10min con avisos) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos`);
   console.log(`📊 Límite diario: ${MAX_PEDIDOS_POR_DIA} pedidos por día`);
+  console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
