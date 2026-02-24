@@ -163,7 +163,7 @@ const resetSession = (from) => {
     pagoResultado: null,
     pagoProcesadoPor: null,
     pagoProcesadoEn: null,
-    warningSent: false // Para no enviar múltiples avisos
+    warningSent: false
   };
 };
 
@@ -171,9 +171,12 @@ const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
 
 // =======================
-// ⏰ FUNCIÓN PARA VERIFICAR Y ENVIAR AVISOS DE SESIÓN (RESPUESTA A MENSAJES)
+// ⏰ FUNCIÓN PARA VERIFICAR Y ENVIAR AVISOS DE SESIÓN
 // =======================
 async function checkSessionWarning(from, s) {
+  // Si el pedido ya fue completado (no tiene sesión), no enviar avisos
+  if (!sessions[from]) return true;
+  
   const tiempoInactivo = now() - s.lastAction;
   
   // Si ya pasó el tiempo de expiración
@@ -186,18 +189,6 @@ async function checkSessionWarning(from, s) {
       "Escribe *Hola* para comenzar de nuevo. 🍕"
     ));
     return false;
-  }
-  
-  // Aviso a los 5 minutos (solo una vez)
-  if (tiempoInactivo > WARNING_TIME && !s.warningSent) {
-    s.warningSent = true;
-    const minutosRestantes = Math.ceil((SESSION_TIMEOUT - tiempoInactivo) / 60000);
-    await sendMessage(from, textMsg(
-      "⏳ *¿SIGUES AHÍ?*\n\n" +
-      `Llevas ${Math.floor(tiempoInactivo / 60000)} minutos sin actividad.\n` +
-      `Tu sesión expirará en ${minutosRestantes} minutos si no respondes.\n\n` +
-      "Responde para continuar con tu pedido. 🍕"
-    ));
   }
   
   return true;
@@ -225,8 +216,8 @@ setInterval(async () => {
       
       delete sessions[from];
     }
-    // Aviso a los 5 minutos (solo una vez)
-    else if (tiempoInactivo > WARNING_TIME && !s.warningSent) {
+    // Aviso a los 5 minutos (solo una vez) - SOLO si el pedido NO ha sido completado
+    else if (tiempoInactivo > WARNING_TIME && !s.warningSent && s.step !== "completado") {
       console.log(`⏳ Enviando aviso a ${from} (${Math.floor(tiempoInactivo / 60000)} min inactivo)`);
       
       s.warningSent = true;
@@ -240,7 +231,7 @@ setInterval(async () => {
       )).catch(e => console.log("Error al enviar aviso"));
     }
   }
-}, 60000); // Revisar cada minuto
+}, 60000);
 
 // =======================
 // ⏱️ FUNCIONES DE CONTROL DE TIEMPO ENTRE PEDIDOS
@@ -376,11 +367,11 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // 🔥 VERIFICAR SESIÓN Y ENVIAR AVISOS
+    // 🔥 VERIFICAR SESIÓN Y ENVIAR AVISOS (solo si existe sesión)
     if (sessions[from]) {
       const sessionActiva = await checkSessionWarning(from, sessions[from]);
       if (!sessionActiva) {
-        return res.sendStatus(200); // Sesión expirada, ya se envió mensaje
+        return res.sendStatus(200);
       }
     }
 
@@ -394,8 +385,8 @@ app.post("/webhook", async (req, res) => {
       }
       
       const s = sessions[from];
-      s.lastAction = now(); // Actualizar tiempo de actividad
-      s.warningSent = false; // Resetear aviso
+      s.lastAction = now();
+      s.warningSent = false;
       
       if (!s.sucursal) {
         await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
@@ -463,6 +454,7 @@ app.post("/webhook", async (req, res) => {
         caption: caption
       });
       
+      // 🔥 ENVIAR 3 BOTONES A LA SUCURSAL
       await sendMessage(sucursal.telefono, {
         type: "interactive",
         interactive: {
@@ -497,11 +489,20 @@ app.post("/webhook", async (req, res) => {
         blockedNumbers.add(numeroABloquear);
         guardarBloqueados();
         
-        await sendMessage(fromSucursal, textMsg(
-          "✅ *CLIENTE BLOQUEADO*\n\n" +
-          `Número: ${numeroABloquear}\n` +
-          "Ya no podrá hacer pedidos."
-        ));
+        // 🔥 ENVIAR CONFIRMACIÓN A LA SUCURSAL CON OPCIÓN DE DESBLOQUEAR
+        await sendMessage(fromSucursal, {
+          type: "interactive",
+          interactive: {
+            type: "button",
+            body: { text: `✅ *CLIENTE BLOQUEADO*\n\nNúmero: ${numeroABloquear}\n\n¿Qué deseas hacer?` },
+            action: {
+              buttons: [
+                { type: "reply", reply: { id: `desbloquear_${numeroABloquear}`, title: "🔓 DESBLOQUEAR" } },
+                { type: "reply", reply: { id: `ok`, title: "✅ OK" } }
+              ]
+            }
+          }
+        });
         
         try {
           await sendMessage(numeroABloquear, textMsg(
@@ -510,6 +511,18 @@ app.post("/webhook", async (req, res) => {
             "Si crees que es un error, contacta a la pizzería."
           ));
         } catch (e) {}
+        
+        return res.sendStatus(200);
+      }
+      
+      if (replyId.startsWith("desbloquear_")) {
+        const numeroADesbloquear = replyId.replace("desbloquear_", "");
+        
+        if (blockedNumbers.has(numeroADesbloquear)) {
+          blockedNumbers.delete(numeroADesbloquear);
+          guardarBloqueados();
+          await sendMessage(fromSucursal, textMsg(`✅ *CLIENTE DESBLOQUEADO*\n\nNúmero: ${numeroADesbloquear}`));
+        }
         
         return res.sendStatus(200);
       }
@@ -628,7 +641,7 @@ app.post("/webhook", async (req, res) => {
 
     const s = sessions[from];
     s.lastAction = now();
-    s.warningSent = false; // Resetear aviso cuando el usuario responde
+    s.warningSent = false;
 
     if (s.lastInput === input && !TEXT_ONLY_STEPS.includes(s.step)) {
       return res.sendStatus(200);
@@ -643,8 +656,11 @@ app.post("/webhook", async (req, res) => {
 
     if (input === "cancelar") {
       delete sessions[from];
-      await sendMessage(from, textMsg("❌ Pedido cancelado."));
-      await sendMessage(from, seleccionarSucursal());
+      await sendMessage(from, textMsg(
+        "❌ *PEDIDO CANCELADO*\n\n" +
+        "Tu pedido ha sido cancelado.\n" +
+        "Escribe *Hola* para comenzar de nuevo. 🍕"
+      ));
       return res.sendStatus(200);
     }
 
@@ -872,6 +888,8 @@ app.post("/webhook", async (req, res) => {
         await sendMessage(from, resumenCliente);
         await sendMessage(SUCURSALES[s.sucursal].telefono, resumenNegocio);
         
+        // Marcar como completado antes de eliminar
+        s.step = "completado";
         delete sessions[from];
         reply = null;
         break;
@@ -897,12 +915,17 @@ app.post("/webhook", async (req, res) => {
             await sendMessage(from, resumenCliente);
             await sendMessage(SUCURSALES[s.sucursal].telefono, resumenNegocio);
             
+            // Marcar como completado antes de eliminar
+            s.step = "completado";
             delete sessions[from];
             reply = null;
           }
         } else if (input === "cancelar") {
           delete sessions[from];
-          reply = merge(textMsg("❌ Pedido cancelado"), seleccionarSucursal());
+          reply = merge(
+            textMsg("❌ *PEDIDO CANCELADO*\n\nEscribe *Hola* para comenzar de nuevo."), 
+            seleccionarSucursal()
+          );
         }
         break;
 
@@ -925,7 +948,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI
+// 🎨 FUNCIONES UI (TODAS IGUALES)
 // =======================
 
 const seleccionarSucursal = () => {
@@ -1303,7 +1326,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V14 (Sesión 10min con avisos) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V15 (Confirmación + Mejoras) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
