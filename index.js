@@ -81,36 +81,14 @@ function getPrecioOferta(pizza, tamaño) {
 }
 
 // =======================
-// ⏰ FUNCIÓN PARA VERIFICAR HORARIO
+// ⏰ FUNCIÓN PARA VERIFICAR HORARIO (DESACTIVADA)
 // =======================
 function verificarHorario(sucursalKey) {
-  const ahora = new Date();
-  const dia = ahora.getDay();
-  const hora = ahora.getHours();
-  
-  const sucursal = SUCURSALES[sucursalKey];
-  
-  if (sucursal.diasCerrados.includes(dia)) {
-    const diasSemana = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-    return {
-      abierto: false,
-      mensaje: `🕒 *FUERA DE HORARIO*\n\nHoy es ${diasSemana[dia]}, estamos CERRADOS.\n\nNuestro horario es:\nLunes a Domingo: 11:00 AM - 9:00 PM\n(Martes cerrado)`
-    };
-  }
-  
-  if (hora < sucursal.horarioApertura || hora >= sucursal.horarioCierre) {
-    return {
-      abierto: false,
-      mensaje: `🕒 *FUERA DE HORARIO*\n\nNuestro horario de atención es:\n${sucursal.horarioApertura}:00 AM - ${sucursal.horarioCierre}:00 PM\n(Martes cerrado)\n\nActualmente son las ${hora}:00 horas.\n\nVuelve en nuestro horario de atención. 🍕`
-    };
-  }
-  
-  return { abierto: true };
+  return { abierto: true }; // 👈 SIEMPRE ABIERTO
 }
 
 function pedidoEnHorario(sucursalKey) {
-  const horario = verificarHorario(sucursalKey);
-  return horario.abierto;
+  return true; // 👈 SIEMPRE ABIERTO
 }
 
 // =======================
@@ -426,22 +404,6 @@ app.post("/webhook", async (req, res) => {
     }
 
     const s = sessions[from];
-    
-    // =======================
-    // ⏰ VERIFICAR HORARIO
-    // =======================
-    if (s.sucursal && (s.step === "welcome" || s.step.includes("pizza") || s.step.includes("size") || 
-        s.step.includes("cheese") || s.step.includes("extra") || s.step.includes("payment") ||
-        s.step.includes("address") || s.step.includes("phone") || s.step.includes("pickup") ||
-        s.step.includes("confirmacion"))) {
-      
-      const horarioValido = pedidoEnHorario(s.sucursal);
-      if (!horarioValido) {
-        const horarioInfo = verificarHorario(s.sucursal);
-        await sendMessage(from, textMsg(horarioInfo.mensaje));
-        return res.sendStatus(200);
-      }
-    }
 
     // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image" || msg.type === "document") {
@@ -787,13 +749,6 @@ app.post("/webhook", async (req, res) => {
 
       case "welcome":
         if (input === "pedido") {
-          if (!pedidoEnHorario(s.sucursal)) {
-            const horarioInfo = verificarHorario(s.sucursal);
-            await sendMessage(from, textMsg(horarioInfo.mensaje));
-            reply = welcomeMessage(s);
-            break;
-          }
-          
           const check = puedeHacerPedido(from);
           if (!check.permitido) {
             await sendMessage(from, textMsg(check.mensaje));
@@ -1163,7 +1118,6 @@ const menuText = (s) => {
   );
 };
 
-// ✅ FUNCIÓN CORREGIDA
 const pizzaList = () => {
   const hoy = new Date();
   const dia = hoy.getDay();
@@ -1569,14 +1523,14 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V19 (Corregido) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V19 (Horario Desactivado) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos`);
   console.log(`📊 Límite diario: ${MAX_PEDIDOS_POR_DIA} pedidos por día`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
-  console.log(`🕒 Horario: 11:00 AM - 9:00 PM (Martes CERRADO)`);
+  console.log(`🕒 Horario: DESACTIVADO (siempre abierto)`);
   console.log(`🎁 Ofertas: Fin de semana (Pepperoni Grande $100)`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
