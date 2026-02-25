@@ -37,12 +37,9 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391283842",
+    telefono: "5216391759607",
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
-    horarioApertura: 11,
-    horarioCierre: 21,
-    diasCerrados: [2],
     mercadoPago: {
       cuenta: "722969010279408583",
       beneficiario: "Gabriel Jair Serrato Betance"
@@ -52,12 +49,9 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216393992508",
+    telefono: "5216391759607",
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
-    horarioApertura: 11,
-    horarioCierre: 21,
-    diasCerrados: [2],
     mercadoPago: {
       cuenta: "722969010279408583",
       beneficiario: "Gabriel Jair Serrato Betance"
@@ -66,39 +60,16 @@ const SUCURSALES = {
 };
 
 // =======================
-// 🎁 CONFIGURACIÓN DE OFERTAS
+// ⏰ CONFIGURACIÓN DE SESIÓN (10 MINUTOS)
 // =======================
-function getPrecioOferta(pizza, tamaño) {
-  const hoy = new Date();
-  const dia = hoy.getDay();
-  const esFinDeSemana = dia === 5 || dia === 6 || dia === 0;
-  
-  if (esFinDeSemana && pizza === "pepperoni" && tamaño === "grande") {
-    return 100;
-  }
-  
-  return PRICES[pizza][tamaño];
-}
+const SESSION_TIMEOUT = 10 * 60 * 1000; // 10 minutos
+const WARNING_TIME = 5 * 60 * 1000;      // Aviso a los 5 minutos
 
-// =======================
-// ⏰ FUNCIÓN PARA VERIFICAR HORARIO (DESACTIVADA)
-// =======================
-function verificarHorario(sucursalKey) {
-  return { abierto: true }; // 👈 SIEMPRE ABIERTO
-}
-
-function pedidoEnHorario(sucursalKey) {
-  return true; // 👈 SIEMPRE ABIERTO
-}
-
-// =======================
-// ⏰ CONFIGURACIÓN DE SESIÓN
-// =======================
-const SESSION_TIMEOUT = 10 * 60 * 1000;
-const WARNING_TIME = 5 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
-const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000;
-const MAX_PEDIDOS_POR_DIA = 5;
+
+// ⏱️ CONTROL DE TIEMPO ENTRE PEDIDOS
+const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000; // 5 minutos
+const MAX_PEDIDOS_POR_DIA = 5; // Máximo 5 pedidos por día
 
 const PRICES = {
   pepperoni: { 
@@ -192,8 +163,7 @@ const resetSession = (from) => {
     pagoResultado: null,
     pagoProcesadoPor: null,
     pagoProcesadoEn: null,
-    warningSent: false,
-    pedidoId: null
+    warningSent: false // Para no enviar múltiples avisos
   };
 };
 
@@ -201,13 +171,12 @@ const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
 
 // =======================
-// ⏰ FUNCIÓN PARA VERIFICAR Y ENVIAR AVISOS DE SESIÓN
+// ⏰ FUNCIÓN PARA VERIFICAR Y ENVIAR AVISOS DE SESIÓN (RESPUESTA A MENSAJES)
 // =======================
 async function checkSessionWarning(from, s) {
-  if (!sessions[from]) return true;
-  
   const tiempoInactivo = now() - s.lastAction;
   
+  // Si ya pasó el tiempo de expiración
   if (tiempoInactivo > SESSION_TIMEOUT) {
     delete sessions[from];
     await sendMessage(from, textMsg(
@@ -219,11 +188,23 @@ async function checkSessionWarning(from, s) {
     return false;
   }
   
+  // Aviso a los 5 minutos (solo una vez)
+  if (tiempoInactivo > WARNING_TIME && !s.warningSent) {
+    s.warningSent = true;
+    const minutosRestantes = Math.ceil((SESSION_TIMEOUT - tiempoInactivo) / 60000);
+    await sendMessage(from, textMsg(
+      "⏳ *¿SIGUES AHÍ?*\n\n" +
+      `Llevas ${Math.floor(tiempoInactivo / 60000)} minutos sin actividad.\n` +
+      `Tu sesión expirará en ${minutosRestantes} minutos si no respondes.\n\n` +
+      "Responde para continuar con tu pedido. 🍕"
+    ));
+  }
+  
   return true;
 }
 
 // =======================
-// ⏰ VERIFICACIÓN AUTOMÁTICA DE SESIONES
+// ⏰ VERIFICACIÓN AUTOMÁTICA DE SESIONES (CADA MINUTO)
 // =======================
 setInterval(async () => {
   const ahora = now();
@@ -231,6 +212,7 @@ setInterval(async () => {
   for (const [from, s] of Object.entries(sessions)) {
     const tiempoInactivo = ahora - s.lastAction;
     
+    // Si ya pasó el tiempo de expiración (10 min)
     if (tiempoInactivo > SESSION_TIMEOUT) {
       console.log(`⏰ Sesión expirada automáticamente: ${from}`);
       
@@ -243,7 +225,8 @@ setInterval(async () => {
       
       delete sessions[from];
     }
-    else if (tiempoInactivo > WARNING_TIME && !s.warningSent && s.step !== "completado") {
+    // Aviso a los 5 minutos (solo una vez)
+    else if (tiempoInactivo > WARNING_TIME && !s.warningSent) {
       console.log(`⏳ Enviando aviso a ${from} (${Math.floor(tiempoInactivo / 60000)} min inactivo)`);
       
       s.warningSent = true;
@@ -257,7 +240,7 @@ setInterval(async () => {
       )).catch(e => console.log("Error al enviar aviso"));
     }
   }
-}, 60000);
+}, 60000); // Revisar cada minuto
 
 // =======================
 // ⏱️ FUNCIONES DE CONTROL DE TIEMPO ENTRE PEDIDOS
@@ -393,21 +376,26 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // 🔥 VERIFICAR SESIÓN
+    // 🔥 VERIFICAR SESIÓN Y ENVIAR AVISOS
     if (sessions[from]) {
       const sessionActiva = await checkSessionWarning(from, sessions[from]);
       if (!sessionActiva) {
-        return res.sendStatus(200);
+        return res.sendStatus(200); // Sesión expirada, ya se envió mensaje
       }
-    } else {
-      resetSession(from);
     }
-
-    const s = sessions[from];
 
     // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image" || msg.type === "document") {
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
+      
+      if (!sessions[from]) {
+        await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
+        return res.sendStatus(200);
+      }
+      
+      const s = sessions[from];
+      s.lastAction = now(); // Actualizar tiempo de actividad
+      s.warningSent = false; // Resetear aviso
       
       if (!s.sucursal) {
         await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
@@ -431,8 +419,6 @@ app.post("/webhook", async (req, res) => {
       }
       
       s.comprobanteCount++;
-      s.lastAction = now();
-      s.warningSent = false;
       
       await sendMessage(from, textMsg(
         "✅ *COMPROBANTE RECIBIDO*\n\n" +
@@ -511,19 +497,11 @@ app.post("/webhook", async (req, res) => {
         blockedNumbers.add(numeroABloquear);
         guardarBloqueados();
         
-        await sendMessage(fromSucursal, {
-          type: "interactive",
-          interactive: {
-            type: "button",
-            body: { text: `✅ *CLIENTE BLOQUEADO*\n\nNúmero: ${numeroABloquear}\n\n¿Qué deseas hacer?` },
-            action: {
-              buttons: [
-                { type: "reply", reply: { id: `desbloquear_${numeroABloquear}`, title: "🔓 DESBLOQUEAR" } },
-                { type: "reply", reply: { id: `ok`, title: "✅ OK" } }
-              ]
-            }
-          }
-        });
+        await sendMessage(fromSucursal, textMsg(
+          "✅ *CLIENTE BLOQUEADO*\n\n" +
+          `Número: ${numeroABloquear}\n` +
+          "Ya no podrá hacer pedidos."
+        ));
         
         try {
           await sendMessage(numeroABloquear, textMsg(
@@ -532,18 +510,6 @@ app.post("/webhook", async (req, res) => {
             "Si crees que es un error, contacta a la pizzería."
           ));
         } catch (e) {}
-        
-        return res.sendStatus(200);
-      }
-      
-      if (replyId.startsWith("desbloquear_")) {
-        const numeroADesbloquear = replyId.replace("desbloquear_", "");
-        
-        if (blockedNumbers.has(numeroADesbloquear)) {
-          blockedNumbers.delete(numeroADesbloquear);
-          guardarBloqueados();
-          await sendMessage(fromSucursal, textMsg(`✅ *CLIENTE DESBLOQUEADO*\n\nNúmero: ${numeroADesbloquear}`));
-        }
         
         return res.sendStatus(200);
       }
@@ -645,50 +611,6 @@ app.post("/webhook", async (req, res) => {
         
         return res.sendStatus(200);
       }
-      
-      if (replyId.startsWith("aceptar_")) {
-        const pedidoId = replyId.replace("aceptar_", "");
-        
-        for (const [cliente, s] of Object.entries(sessions)) {
-          if (s.pedidoId === pedidoId) {
-            await sendMessage(cliente, textMsg(
-              "✅ *¡PEDIDO ACEPTADO!*\n\n" +
-              `🏪 *${SUCURSALES[s.sucursal].nombre}*\n\n` +
-              "Tu pedido ha sido aceptado y ya está en preparación.\n" +
-              "⏱️ Tiempo estimado: 30-40 minutos\n\n" +
-              "¡Gracias por tu preferencia! 🙌"
-            ));
-            
-            await sendMessage(fromSucursal, textMsg(
-              `✅ *PEDIDO ACEPTADO*\n\nCliente: ${cliente}`
-            ));
-            break;
-          }
-        }
-        return res.sendStatus(200);
-      }
-      
-      if (replyId.startsWith("rechazar_")) {
-        const pedidoId = replyId.replace("rechazar_", "");
-        
-        for (const [cliente, s] of Object.entries(sessions)) {
-          if (s.pedidoId === pedidoId) {
-            await sendMessage(cliente, textMsg(
-              "❌ *PEDIDO RECHAZADO*\n\n" +
-              `🏪 *${SUCURSALES[s.sucursal].nombre}*\n\n` +
-              "Lo sentimos, tu pedido no pudo ser aceptado.\n" +
-              "Por favor, contacta a la sucursal para más información.\n\n" +
-              `📞 Teléfono: ${SUCURSALES[s.sucursal].telefono}`
-            ));
-            
-            await sendMessage(fromSucursal, textMsg(
-              `❌ *PEDIDO RECHAZADO*\n\nCliente: ${cliente}`
-            ));
-            break;
-          }
-        }
-        return res.sendStatus(200);
-      }
     }
 
     const rawText = msg.text?.body;
@@ -698,8 +620,15 @@ app.post("/webhook", async (req, res) => {
 
     if (input) input = normalize(input);
 
+    if (!sessions[from] || isExpired(sessions[from])) {
+      resetSession(from);
+      await sendMessage(from, seleccionarSucursal());
+      return res.sendStatus(200);
+    }
+
+    const s = sessions[from];
     s.lastAction = now();
-    s.warningSent = false;
+    s.warningSent = false; // Resetear aviso cuando el usuario responde
 
     if (s.lastInput === input && !TEXT_ONLY_STEPS.includes(s.step)) {
       return res.sendStatus(200);
@@ -714,11 +643,8 @@ app.post("/webhook", async (req, res) => {
 
     if (input === "cancelar") {
       delete sessions[from];
-      await sendMessage(from, textMsg(
-        "❌ *PEDIDO CANCELADO*\n\n" +
-        "Tu pedido ha sido cancelado.\n" +
-        "Escribe *Hola* para comenzar de nuevo. 🍕"
-      ));
+      await sendMessage(from, textMsg("❌ Pedido cancelado."));
+      await sendMessage(from, seleccionarSucursal());
       return res.sendStatus(200);
     }
 
@@ -759,8 +685,6 @@ app.post("/webhook", async (req, res) => {
           reply = pizzaList();
         } else if (input === "menu") {
           reply = merge(menuText(s), welcomeMessage(s));
-        } else if (input === "ofertas") {
-          reply = merge(ofertasText(), welcomeMessage(s));
         } else {
           reply = merge(textMsg("❌ Opción inválida"), welcomeMessage(s));
         }
@@ -942,36 +866,13 @@ app.post("/webhook", async (req, res) => {
         
         registrarPedido(from);
         
-        s.pedidoId = `${from}_${Date.now()}`;
+        const resumenCliente = buildClienteSummary(s);
+        const resumenNegocio = buildNegocioSummary(s);
         
-        const sucursalDestino = SUCURSALES[s.sucursal];
-        const resumenPreliminar = buildPreliminarSummary(s);
+        await sendMessage(from, resumenCliente);
+        await sendMessage(SUCURSALES[s.sucursal].telefono, resumenNegocio);
         
-        await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-        
-        await sendMessage(sucursalDestino.telefono, {
-          type: "interactive",
-          interactive: {
-            type: "button",
-            body: { text: `📋 *NUEVO PEDIDO PARA RECOGER*\n\n¿Aceptas este pedido?` },
-            action: {
-              buttons: [
-                { type: "reply", reply: { id: `aceptar_${s.pedidoId}`, title: "✅ ACEPTAR" } },
-                { type: "reply", reply: { id: `rechazar_${s.pedidoId}`, title: "❌ RECHAZAR" } },
-                { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
-              ]
-            }
-          }
-        });
-        
-        await sendMessage(from, textMsg(
-          "📋 *PEDIDO ENVIADO*\n\n" +
-          "Tu pedido ha sido enviado a la sucursal.\n" +
-          "Espera la confirmación para saber si fue aceptado.\n\n" +
-          "Te notificaremos en unos minutos. ⏳"
-        ));
-        
-        s.step = "esperando_confirmacion_sucursal";
+        delete sessions[from];
         reply = null;
         break;
 
@@ -990,43 +891,18 @@ app.post("/webhook", async (req, res) => {
               "✅ *Envía la FOTO del comprobante*"
             );
           } else {
-            s.pedidoId = `${from}_${Date.now()}`;
-            const sucursalDestino = SUCURSALES[s.sucursal];
-            const resumenPreliminar = buildPreliminarSummary(s);
+            const resumenCliente = buildClienteSummary(s);
+            const resumenNegocio = buildNegocioSummary(s);
             
-            await sendMessage(sucursalDestino.telefono, resumenPreliminar);
+            await sendMessage(from, resumenCliente);
+            await sendMessage(SUCURSALES[s.sucursal].telefono, resumenNegocio);
             
-            await sendMessage(sucursalDestino.telefono, {
-              type: "interactive",
-              interactive: {
-                type: "button",
-                body: { text: `📋 *NUEVO PEDIDO A DOMICILIO (EFECTIVO)*\n\n¿Aceptas este pedido?` },
-                action: {
-                  buttons: [
-                    { type: "reply", reply: { id: `aceptar_${s.pedidoId}`, title: "✅ ACEPTAR" } },
-                    { type: "reply", reply: { id: `rechazar_${s.pedidoId}`, title: "❌ RECHAZAR" } },
-                    { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
-                  ]
-                }
-              }
-            });
-            
-            await sendMessage(from, textMsg(
-              "📋 *PEDIDO ENVIADO*\n\n" +
-              "Tu pedido ha sido enviado a la sucursal.\n" +
-              "Espera la confirmación para saber si fue aceptado.\n\n" +
-              "Te notificaremos en minutos. ⏳"
-            ));
-            
-            s.step = "esperando_confirmacion_sucursal";
+            delete sessions[from];
             reply = null;
           }
         } else if (input === "cancelar") {
           delete sessions[from];
-          reply = merge(
-            textMsg("❌ *PEDIDO CANCELADO*\n\nEscribe *Hola* para comenzar de nuevo."), 
-            seleccionarSucursal()
-          );
+          reply = merge(textMsg("❌ Pedido cancelado"), seleccionarSucursal());
         }
         break;
 
@@ -1036,10 +912,6 @@ app.post("/webhook", async (req, res) => {
 
       case "esperando_confirmacion":
         reply = textMsg("⏳ *EN VERIFICACIÓN*\n\nYa recibimos tu comprobante. Te confirmaremos en minutos.");
-        break;
-        
-      case "esperando_confirmacion_sucursal":
-        reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nTe avisaremos cuando sea aceptado. 🍕");
         break;
     }
 
@@ -1074,32 +946,9 @@ const welcomeMessage = (s) => {
     [
       { id: "pedido", title: "🛒 Hacer pedido" },
       { id: "menu", title: "📖 Ver menú" },
-      { id: "ofertas", title: "🎁 Ofertas" },
       { id: "cancelar", title: "❌ Cancelar" }
     ]
   );
-};
-
-const ofertasText = () => {
-  const hoy = new Date();
-  const dia = hoy.getDay();
-  const esFinDeSemana = dia === 5 || dia === 6 || dia === 0;
-  
-  let texto = "🎁 *OFERTAS ESPECIALES*\n\n";
-  
-  if (esFinDeSemana) {
-    texto += "🔥 *VÁLIDAS VIERNES A DOMINGO*\n\n";
-    texto += "🍕 *Pepperoni Grande*: $100 MXN\n";
-    texto += "   (Precio regular: $130)\n\n";
-    texto += "✨ ¡Aprovecha!";
-  } else {
-    texto += "❌ No hay ofertas disponibles hoy.\n\n";
-    texto += "Las ofertas son válidas de:\n";
-    texto += "📅 Viernes a Domingo\n\n";
-    texto += "¡Vuelve el fin de semana! 🎉";
-  }
-  
-  return textMsg(texto);
 };
 
 const menuText = (s) => {
@@ -1119,50 +968,25 @@ const menuText = (s) => {
 };
 
 const pizzaList = () => {
-  const hoy = new Date();
-  const dia = hoy.getDay();
-  const esFinDeSemana = dia === 5 || dia === 6 || dia === 0;
-  
-  const pizzasValidas = Object.keys(PRICES).filter(p => 
-    !["extra", "envio", "orilla_queso"].includes(p)
-  );
-  
-  const rows = pizzasValidas.map(p => {
-    const pizza = PRICES[p];
-    let descripcion = `G $${pizza.grande} | EG $${pizza.extragrande}`;
-    
-    if (esFinDeSemana && p === "pepperoni") {
-      descripcion = `G $100 (oferta) | EG $${pizza.extragrande}`;
-    }
-    
-    return {
-      id: p,
-      title: `${pizza.emoji} ${pizza.nombre}`,
-      description: descripcion
-    };
-  });
-  
   return list("🍕 *ELIGE TU PIZZA*", [{
     title: "PIZZAS",
-    rows: rows
+    rows: Object.keys(PRICES)
+      .filter(p => !["extra", "envio", "orilla_queso"].includes(p))
+      .map(p => ({
+        id: p,
+        title: `${PRICES[p].emoji} ${PRICES[p].nombre}`,
+        description: `G $${PRICES[p].grande} | EG $${PRICES[p].extragrande}`
+      }))
   }]);
 };
 
 const sizeButtons = (pizzaType) => {
   const pizza = PRICES[pizzaType];
-  const precioGrande = getPrecioOferta(pizzaType, "grande");
-  const precioExtragrande = getPrecioOferta(pizzaType, "extragrande");
-  
-  let grandeText = `Grande $${precioGrande}`;
-  if (pizzaType === "pepperoni" && precioGrande < pizza.grande) {
-    grandeText += " 🎁 OFERTA";
-  }
-  
   return buttons(
     `📏 *TAMAÑO*`,
     [
-      { id: "grande", title: grandeText },
-      { id: "extragrande", title: `Extra $${precioExtragrande}` },
+      { id: "grande", title: `Grande $${pizza.grande}` },
+      { id: "extragrande", title: `Extra $${pizza.extragrande}` },
       { id: "cancelar", title: "❌ Cancelar" }
     ]
   );
@@ -1264,13 +1088,11 @@ const confirmacionFinal = (s) => {
   let resumen = `📋 *CONFIRMA TU PEDIDO*\n\n`;
   
   s.pizzas.forEach((p, i) => {
-    const precio = getPrecioOferta(p.type, p.size);
     resumen += `🍕 Pizza ${i+1}: ${p.type} ${p.size}\n`;
     if (p.crust) resumen += `   🧀 Orilla (+$40)\n`;
     if (p.extras?.length) {
       resumen += `   ➕ Extras: ${p.extras.join(", ")} (+$${p.extras.length * 15})\n`;
     }
-    resumen += `   $${precio}\n`;
   });
   
   resumen += `\n💰 *TOTAL: $${total}*\n`;
@@ -1286,54 +1108,12 @@ const confirmacionFinal = (s) => {
 const calcularTotal = (s) => {
   let total = 0;
   s.pizzas.forEach(p => {
-    total += getPrecioOferta(p.type, p.size);
+    total += PRICES[p.type][p.size];
     if (p.crust) total += PRICES.orilla_queso.precio;
     total += p.extras.length * PRICES.extra.precio;
   });
   if (s.delivery) total += PRICES.envio.precio;
   return total;
-};
-
-const buildPreliminarSummary = (s) => {
-  const suc = SUCURSALES[s.sucursal];
-  let total = 0;
-  let text = `📋 *NUEVO PEDIDO POR CONFIRMAR*\n🏪 ${suc.nombre}\n\n`;
-  text += `━━━━━━━━━━━━━━━━━━\n\n`;
-  text += `👤 *Cliente:* ${s.clientNumber}\n\n`;
-  
-  s.pizzas.forEach((p, i) => {
-    const precio = getPrecioOferta(p.type, p.size);
-    total += precio;
-    text += `🍕 *Pizza ${i+1}*\n`;
-    text += `   ${p.type} (${p.size})\n`;
-    if (p.crust) {
-      total += PRICES.orilla_queso.precio;
-      text += `   🧀 Orilla de queso (+$40)\n`;
-    }
-    if (p.extras?.length) {
-      const extrasTotal = p.extras.length * PRICES.extra.precio;
-      total += extrasTotal;
-      text += `   ➕ Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
-    }
-    text += `   $${precio}\n`;
-  });
-  
-  text += `\n━━━━━━━━━━━━━━━━━━\n`;
-  text += `💰 *TOTAL: $${total}*\n`;
-  
-  if (s.delivery) {
-    text += `🚚 *Domicilio*\n`;
-    text += `   Envío: +$${PRICES.envio.precio}\n`;
-    text += `   📍 ${s.address}\n`;
-    text += `   📞 ${s.phone}\n`;
-  } else {
-    text += `🏪 *Recoger*\n`;
-    text += `   Nombre: ${s.pickupName}\n`;
-  }
-  
-  text += `💳 *Pago:* ${s.pagoMetodo || "Efectivo"}\n`;
-  
-  return textMsg(text);
 };
 
 const buildClienteSummary = (s) => {
@@ -1343,7 +1123,7 @@ const buildClienteSummary = (s) => {
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
   
   s.pizzas.forEach((p, i) => {
-    const precio = getPrecioOferta(p.type, p.size);
+    const precio = PRICES[p.type][p.size];
     total += precio;
     text += `🍕 *Pizza ${i+1}*\n`;
     text += `   ${p.type} (${p.size})\n`;
@@ -1384,12 +1164,12 @@ const buildClienteSummary = (s) => {
 const buildNegocioSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
   let total = 0;
-  let text = `🛎️ *PEDIDO CONFIRMADO*\n🏪 ${suc.nombre}\n\n`;
+  let text = `🛎️ *NUEVO PEDIDO*\n🏪 ${suc.nombre}\n\n`;
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
   text += `👤 *Cliente:* ${s.clientNumber}\n\n`;
   
   s.pizzas.forEach((p, i) => {
-    const precio = getPrecioOferta(p.type, p.size);
+    const precio = PRICES[p.type][p.size];
     total += precio;
     text += `🍕 *Pizza ${i+1}*\n`;
     text += `   ${p.type} (${p.size})\n`;
@@ -1523,15 +1303,13 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V19 (Horario Desactivado) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V14 (Sesión 10min con avisos) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos`);
   console.log(`📊 Límite diario: ${MAX_PEDIDOS_POR_DIA} pedidos por día`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
-  console.log(`🕒 Horario: DESACTIVADO (siempre abierto)`);
-  console.log(`🎁 Ofertas: Fin de semana (Pepperoni Grande $100)`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
