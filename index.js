@@ -164,7 +164,7 @@ const resetSession = (from) => {
     pagoProcesadoPor: null,
     pagoProcesadoEn: null,
     warningSent: false,
-    pedidoId: null // Para identificar el pedido
+    pedidoId: null
   };
 };
 
@@ -372,32 +372,41 @@ app.post("/webhook", async (req, res) => {
       }
     }
 
-    // 🔥 DETECTAR IMAGEN (COMPROBANTE)
+    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - VERSIÓN CORREGIDA
     if (msg.type === "image" || msg.type === "document") {
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
       
+      // Verificar si el cliente tiene sesión
       if (!sessions[from]) {
+        console.log(`❌ Cliente ${from} no tiene sesión activa`);
         await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
         return res.sendStatus(200);
       }
       
       const s = sessions[from];
-      s.lastAction = now();
-      s.warningSent = false;
       
+      // Verificar que tenga sucursal seleccionada
       if (!s.sucursal) {
+        console.log(`❌ Cliente ${from} no tiene sucursal seleccionada`);
         await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
         return res.sendStatus(200);
       }
       
       const sucursal = SUCURSALES[s.sucursal];
       
-      if (s.step !== "ask_comprobante" && s.step !== "esperando_confirmacion") {
-        await sendMessage(from, textMsg("❌ No estamos esperando un comprobante."));
+      // Verificar que esté en el paso correcto
+      if (s.step !== "ask_comprobante") {
+        console.log(`❌ Cliente ${from} envió imagen en paso incorrecto: ${s.step}`);
+        await sendMessage(from, textMsg(
+          "❌ *ERROR*\n\nNo estamos esperando un comprobante en este momento.\n" +
+          "Por favor, continúa con el flujo normal del pedido."
+        ));
         return res.sendStatus(200);
       }
       
+      // Verificar que no haya enviado ya un comprobante
       if (s.comprobanteCount >= 1) {
+        console.log(`⚠️ Cliente ${from} intentó enviar múltiples comprobantes`);
         await sendMessage(from, textMsg(
           "⚠️ *COMPROBANTE YA ENVIADO*\n\n" +
           "Ya recibimos tu comprobante anteriormente.\n" +
@@ -406,8 +415,23 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      s.comprobanteCount++;
+      // Verificar que haya un monto válido
+      if (!s.totalTemp || s.totalTemp <= 0) {
+        console.log(`❌ Cliente ${from} no tiene monto válido: ${s.totalTemp}`);
+        await sendMessage(from, textMsg(
+          "❌ *ERROR*\n\nNo hay información de monto para este pedido.\n" +
+          "Por favor, comienza un nuevo pedido."
+        ));
+        delete sessions[from];
+        return res.sendStatus(200);
+      }
       
+      // Incrementar contador de comprobantes
+      s.comprobanteCount++;
+      s.lastAction = now();
+      s.warningSent = false;
+      
+      // Confirmar al cliente
       await sendMessage(from, textMsg(
         "✅ *COMPROBANTE RECIBIDO*\n\n" +
         "Hemos recibido tu comprobante.\n" +
@@ -415,43 +439,69 @@ app.post("/webhook", async (req, res) => {
         "Te confirmaremos en minutos. ¡Gracias! 🙌"
       ));
       
-      let mediaPayload;
-      let mediaType = "image";
-      
+      // Obtener el ID de la imagen
+      let imageId = null;
       if (msg.type === "image") {
-        mediaPayload = { id: msg.image.id };
+        imageId = msg.image.id;
+        console.log(`🖼️ ID de imagen: ${imageId}`);
       } else if (msg.type === "document") {
         if (msg.document.mime_type?.startsWith("image/")) {
-          mediaPayload = { id: msg.document.id };
+          imageId = msg.document.id;
+          console.log(`📄 Documento de imagen recibido, ID: ${imageId}`);
         } else {
           await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
           return res.sendStatus(200);
         }
       }
       
-      const pagoId = `${from}_${s.sucursal}_${Date.now()}`;
+      if (!imageId) {
+        console.log(`❌ No se pudo obtener ID de imagen`);
+        await sendMessage(from, textMsg("❌ Error al procesar la imagen. Intenta de nuevo."));
+        return res.sendStatus(200);
+      }
+      
+      // Generar ID único para este pago (timestamp + aleatorio para evitar duplicados)
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 1000);
+      const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
       s.pagoId = pagoId;
+      
       const horaActual = new Date().toLocaleString('es-MX', { 
         hour: '2-digit', 
         minute: '2-digit',
         hour12: true 
       });
       
+      // Preparar caption para la imagen
       const caption = 
         `🖼️ *COMPROBANTE DE PAGO*\n` +
         `━━━━━━━━━━━━━━━━━━\n\n` +
         `🏪 *${sucursal.nombre}*\n` +
-        `👤 Cliente: ${from}\n` +
-        `💰 Monto: $${s.totalTemp}\n` +
-        `⏰ Hora: ${horaActual}`;
+        `👤 *Cliente:* ${from}\n` +
+        `💰 *Monto:* $${s.totalTemp} MXN\n` +
+        `🆔 *Pago:* ${timestamp}\n` +
+        `⏰ *Hora:* ${horaActual}`;
       
-      await sendMessage(sucursal.telefono, {
-        type: mediaType,
-        [mediaType]: mediaPayload,
-        caption: caption
-      });
+      // Enviar imagen a la sucursal
+      try {
+        await sendMessage(sucursal.telefono, {
+          type: "image",
+          image: { id: imageId },
+          caption: caption
+        });
+        console.log(`✅ Imagen enviada a sucursal ${sucursal.telefono}`);
+      } catch (error) {
+        console.error(`❌ Error enviando imagen:`, error);
+        await sendMessage(sucursal.telefono, textMsg(
+          `⚠️ *ERROR AL ENVIAR COMPROBANTE*\n\n` +
+          `Cliente: ${from}\n` +
+          `Monto: $${s.totalTemp}\n\n` +
+          `El comprobante no pudo ser enviado automáticamente.\n` +
+          `Por favor, contacta al cliente.`
+        ));
+      }
       
-      // 🔥 BOTONES PARA TRANSFERENCIA
+      // Enviar botones de verificación a la sucursal
       await sendMessage(sucursal.telefono, {
         type: "interactive",
         interactive: {
@@ -467,8 +517,11 @@ app.post("/webhook", async (req, res) => {
         }
       });
       
+      // Actualizar estado de la sesión
       s.comprobanteEnviado = true;
       s.step = "esperando_confirmacion";
+      
+      console.log(`✅ Proceso completado para cliente ${from} con ID ${pagoId}`);
       
       return res.sendStatus(200);
     }
@@ -527,15 +580,30 @@ app.post("/webhook", async (req, res) => {
         const partes = replyId.split("_");
         const cliente = partes[2];
         const sucursalKey = partes[3];
+        const timestamp = partes[4];
+        const random = partes[5];
+        
+        const pagoIdCompleto = `${cliente}_${sucursalKey}_${timestamp}_${random}`;
+        console.log(`🔍 Buscando pago con ID: ${pagoIdCompleto}`);
         
         const sucursal = SUCURSALES[sucursalKey];
         
         if (!sucursal || !sessions[cliente]) {
+          console.log(`⚠️ Cliente ${cliente} no encontrado o sin sesión`);
           await sendMessage(fromSucursal, textMsg("⚠️ Cliente no encontrado"));
           return res.sendStatus(200);
         }
         
         const s = sessions[cliente];
+        
+        // Verificar que el ID del pago coincida
+        if (s.pagoId !== pagoIdCompleto) {
+          console.log(`⚠️ ID de pago no coincide. Esperado: ${s.pagoId}, Recibido: ${pagoIdCompleto}`);
+          await sendMessage(fromSucursal, textMsg(
+            "⚠️ *ERROR*\n\nEste botón ya no es válido. El pago fue procesado con otro ID."
+          ));
+          return res.sendStatus(200);
+        }
         
         if (s.pagoProcesado) {
           await sendMessage(fromSucursal, textMsg(
@@ -580,6 +648,10 @@ app.post("/webhook", async (req, res) => {
         const partes = replyId.split("_");
         const cliente = partes[2];
         const sucursalKey = partes[3];
+        const timestamp = partes[4];
+        const random = partes[5];
+        
+        const pagoIdCompleto = `${cliente}_${sucursalKey}_${timestamp}_${random}`;
         
         const sucursal = SUCURSALES[sucursalKey];
         
@@ -589,6 +661,13 @@ app.post("/webhook", async (req, res) => {
         }
         
         const s = sessions[cliente];
+        
+        if (s.pagoId !== pagoIdCompleto) {
+          await sendMessage(fromSucursal, textMsg(
+            "⚠️ *ERROR*\n\nEste botón ya no es válido. El pago fue procesado con otro ID."
+          ));
+          return res.sendStatus(200);
+        }
         
         if (s.pagoProcesado) {
           await sendMessage(fromSucursal, textMsg(
@@ -621,11 +700,10 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // 🔥 NUEVO: ACEPTAR PEDIDO (EFECTIVO O RECOGER)
+      // 🔥 ACEPTAR PEDIDO (EFECTIVO O RECOGER)
       if (replyId.startsWith("aceptar_")) {
         const pedidoId = replyId.replace("aceptar_", "");
         
-        // Buscar el pedido en sessions
         for (const [cliente, s] of Object.entries(sessions)) {
           if (s.pedidoId === pedidoId) {
             await sendMessage(cliente, textMsg(
@@ -645,7 +723,7 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // 🔥 NUEVO: RECHAZAR PEDIDO (EFECTIVO O RECOGER)
+      // 🔥 RECHAZAR PEDIDO (EFECTIVO O RECOGER)
       if (replyId.startsWith("rechazar_")) {
         const pedidoId = replyId.replace("rechazar_", "");
         
@@ -925,16 +1003,13 @@ app.post("/webhook", async (req, res) => {
         
         registrarPedido(from);
         
-        // Generar ID único para este pedido
         s.pedidoId = `${from}_${Date.now()}`;
         
-        // 🔥 ENVIAR A LA SUCURSAL CON BOTONES DE ACEPTAR/RECHAZAR
         const sucursalDestino = SUCURSALES[s.sucursal];
         const resumenPreliminar = buildPreliminarSummary(s);
         
         await sendMessage(sucursalDestino.telefono, resumenPreliminar);
         
-        // Botones para la sucursal
         await sendMessage(sucursalDestino.telefono, {
           type: "interactive",
           interactive: {
@@ -950,7 +1025,6 @@ app.post("/webhook", async (req, res) => {
           }
         });
         
-        // Mensaje al cliente
         await sendMessage(from, textMsg(
           "📋 *PEDIDO ENVIADO*\n\n" +
           "Tu pedido ha sido enviado a la sucursal.\n" +
@@ -958,7 +1032,6 @@ app.post("/webhook", async (req, res) => {
           "Te notificaremos en unos minutos. ⏳"
         ));
         
-        // No eliminamos la sesión, esperamos confirmación
         s.step = "esperando_confirmacion_sucursal";
         reply = null;
         break;
@@ -978,7 +1051,6 @@ app.post("/webhook", async (req, res) => {
               "✅ *Envía la FOTO del comprobante*"
             );
           } else {
-            // EFECTIVO - Enviar a sucursal con botones
             s.pedidoId = `${from}_${Date.now()}`;
             const sucursalDestino = SUCURSALES[s.sucursal];
             const resumenPreliminar = buildPreliminarSummary(s);
@@ -1462,7 +1534,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V16 (Botones en todos los pedidos) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V17 (Comprobantes Corregidos) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
