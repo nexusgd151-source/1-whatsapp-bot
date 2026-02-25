@@ -424,10 +424,10 @@ app.post("/webhook", async (req, res) => {
     const from = msg.from;
 
     // 🚫 VERIFICAR SI EL NÚMERO ES DE LA PIZZERÍA (NO RESPONDER)
-    if (from === SUCURSALES.revolucion.telefono || from === SUCURSALES.obrera.telefono) {
-      console.log(`📱 Mensaje de la pizzería (ignorado): ${from}`);
-      return res.sendStatus(200);
-    }
+    //if (from === SUCURSALES.revolucion.telefono || from === SUCURSALES.obrera.telefono) {
+      //console.log(`📱 Mensaje de la pizzería (ignorado): ${from}`);
+     // return res.sendStatus(200);
+   // }
 
     // 🚫 VERIFICAR SI EL NÚMERO ESTÁ BLOQUEADO
     if (blockedNumbers.has(from)) {
