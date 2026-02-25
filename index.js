@@ -30,6 +30,13 @@ function guardarBloqueados() {
 }
 
 // =======================
+// 📊 CONFIGURACIÓN PARA EXCEL (PREPARADO)
+// =======================
+const EXCEL_FILE = path.join(__dirname, 'informacion.xlsx');
+// NOTA: La implementación de Excel se hará después
+// Por ahora solo dejamos la estructura lista
+
+// =======================
 // 🏪 CONFIGURACIÓN DE SUCURSALES
 // =======================
 const SUCURSALES = {
@@ -37,9 +44,12 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607",
+    telefono: "5216391283842",
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
+    horarioApertura: 11, // 11 AM
+    horarioCierre: 21,   // 9 PM
+    diasCerrados: [2],   // 2 = Martes (0=Domingo, 1=Lunes, 2=Martes...)
     mercadoPago: {
       cuenta: "722969010279408583",
       beneficiario: "Gabriel Jair Serrato Betance"
@@ -49,15 +59,75 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607",
+    telefono: "5216393992508",
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
+    horarioApertura: 11,
+    horarioCierre: 21,
+    diasCerrados: [2],
     mercadoPago: {
       cuenta: "722969010279408583",
       beneficiario: "Gabriel Jair Serrato Betance"
     }
   }
 };
+
+// =======================
+// 🎁 CONFIGURACIÓN DE OFERTAS
+// =======================
+function getPrecioOferta(pizza, tamaño) {
+  const hoy = new Date();
+  const dia = hoy.getDay(); // 0=Dom, 1=Lun, 2=Mar, 3=Mie, 4=Jue, 5=Vie, 6=Sab
+  
+  // Oferta válida de viernes (5) a domingo (0)
+  const esFinDeSemana = dia === 5 || dia === 6 || dia === 0;
+  
+  // Oferta: Pepperoni Grande a $100
+  if (esFinDeSemana && pizza === "pepperoni" && tamaño === "grande") {
+    return 100; // Precio especial
+  }
+  
+  // Precio normal
+  return PRICES[pizza][tamaño];
+}
+
+// =======================
+// ⏰ FUNCIÓN PARA VERIFICAR HORARIO
+// =======================
+function verificarHorario(sucursalKey) {
+  const ahora = new Date();
+  const dia = ahora.getDay(); // 0=Dom, 1=Lun, 2=Mar, 3=Mie, 4=Jue, 5=Vie, 6=Sab
+  const hora = ahora.getHours();
+  
+  const sucursal = SUCURSALES[sucursalKey];
+  
+  // Verificar si hoy está cerrado (ej. martes)
+  if (sucursal.diasCerrados.includes(dia)) {
+    const diasSemana = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    return {
+      abierto: false,
+      mensaje: `🕒 *FUERA DE HORARIO*\n\nHoy es ${diasSemana[dia]}, estamos CERRADOS.\n\nNuestro horario es:\nLunes a Domingo: 11:00 AM - 9:00 PM\n(Martes cerrado)`
+    };
+  }
+  
+  // Verificar horario
+  if (hora < sucursal.horarioApertura || hora >= sucursal.horarioCierre) {
+    return {
+      abierto: false,
+      mensaje: `🕒 *FUERA DE HORARIO*\n\nNuestro horario de atención es:\n${sucursal.horarioApertura}:00 AM - ${sucursal.horarioCierre}:00 PM\n(Martes cerrado)\n\nActualmente son las ${hora}:00 horas.\n\nVuelve en nuestro horario de atención. 🍕`
+    };
+  }
+  
+  return { abierto: true };
+}
+
+// =======================
+// ⏰ FUNCIÓN PARA VERIFICAR SI EL PEDIDO ES EN HORARIO
+// =======================
+function pedidoEnHorario(sucursalKey) {
+  const horario = verificarHorario(sucursalKey);
+  return horario.abierto;
+}
 
 // =======================
 // ⏰ CONFIGURACIÓN DE SESIÓN (10 MINUTOS)
@@ -164,7 +234,7 @@ const resetSession = (from) => {
     pagoProcesadoPor: null,
     pagoProcesadoEn: null,
     warningSent: false,
-    pedidoId: null // Para identificar el pedido
+    pedidoId: null
   };
 };
 
@@ -353,6 +423,12 @@ app.post("/webhook", async (req, res) => {
     const msg = value.messages[0];
     const from = msg.from;
 
+    // 🚫 VERIFICAR SI EL NÚMERO ES DE LA PIZZERÍA (NO RESPONDER)
+    if (from === SUCURSALES.revolucion.telefono || from === SUCURSALES.obrera.telefono) {
+      console.log(`📱 Mensaje de la pizzería (ignorado): ${from}`);
+      return res.sendStatus(200);
+    }
+
     // 🚫 VERIFICAR SI EL NÚMERO ESTÁ BLOQUEADO
     if (blockedNumbers.has(from)) {
       console.log(`🚫 Número bloqueado intentó contactar: ${from}`);
@@ -370,20 +446,35 @@ app.post("/webhook", async (req, res) => {
       if (!sessionActiva) {
         return res.sendStatus(200);
       }
+    } else {
+      // Si no hay sesión, crear una nueva
+      resetSession(from);
+    }
+
+    const s = sessions[from];
+    
+    // =======================
+    // ⏰ VERIFICAR HORARIO ANTES DE PERMITIR PEDIDOS
+    // =======================
+    // Solo verificar horario si el usuario está intentando hacer un pedido
+    // y ya ha seleccionado sucursal
+    if (s.sucursal && (s.step === "welcome" || s.step.includes("pizza") || s.step.includes("size") || 
+        s.step.includes("cheese") || s.step.includes("extra") || s.step.includes("payment") ||
+        s.step.includes("address") || s.step.includes("phone") || s.step.includes("pickup") ||
+        s.step.includes("confirmacion"))) {
+      
+      const horarioValido = pedidoEnHorario(s.sucursal);
+      if (!horarioValido) {
+        const horarioInfo = verificarHorario(s.sucursal);
+        await sendMessage(from, textMsg(horarioInfo.mensaje));
+        // No eliminamos la sesión, solo bloqueamos el pedido
+        return res.sendStatus(200);
+      }
     }
 
     // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image" || msg.type === "document") {
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
-      
-      if (!sessions[from]) {
-        await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
-        return res.sendStatus(200);
-      }
-      
-      const s = sessions[from];
-      s.lastAction = now();
-      s.warningSent = false;
       
       if (!s.sucursal) {
         await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
@@ -407,6 +498,8 @@ app.post("/webhook", async (req, res) => {
       }
       
       s.comprobanteCount++;
+      s.lastAction = now();
+      s.warningSent = false;
       
       await sendMessage(from, textMsg(
         "✅ *COMPROBANTE RECIBIDO*\n\n" +
@@ -451,7 +544,6 @@ app.post("/webhook", async (req, res) => {
         caption: caption
       });
       
-      // 🔥 BOTONES PARA TRANSFERENCIA
       await sendMessage(sucursal.telefono, {
         type: "interactive",
         interactive: {
@@ -621,11 +713,9 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // 🔥 NUEVO: ACEPTAR PEDIDO (EFECTIVO O RECOGER)
       if (replyId.startsWith("aceptar_")) {
         const pedidoId = replyId.replace("aceptar_", "");
         
-        // Buscar el pedido en sessions
         for (const [cliente, s] of Object.entries(sessions)) {
           if (s.pedidoId === pedidoId) {
             await sendMessage(cliente, textMsg(
@@ -645,7 +735,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // 🔥 NUEVO: RECHAZAR PEDIDO (EFECTIVO O RECOGER)
       if (replyId.startsWith("rechazar_")) {
         const pedidoId = replyId.replace("rechazar_", "");
         
@@ -676,13 +765,6 @@ app.post("/webhook", async (req, res) => {
 
     if (input) input = normalize(input);
 
-    if (!sessions[from] || isExpired(sessions[from])) {
-      resetSession(from);
-      await sendMessage(from, seleccionarSucursal());
-      return res.sendStatus(200);
-    }
-
-    const s = sessions[from];
     s.lastAction = now();
     s.warningSent = false;
 
@@ -733,7 +815,15 @@ app.post("/webhook", async (req, res) => {
         break;
 
       case "welcome":
+        // ⏰ Verificar horario antes de permitir pedido
         if (input === "pedido") {
+          if (!pedidoEnHorario(s.sucursal)) {
+            const horarioInfo = verificarHorario(s.sucursal);
+            await sendMessage(from, textMsg(horarioInfo.mensaje));
+            reply = welcomeMessage(s);
+            break;
+          }
+          
           const check = puedeHacerPedido(from);
           if (!check.permitido) {
             await sendMessage(from, textMsg(check.mensaje));
@@ -744,6 +834,8 @@ app.post("/webhook", async (req, res) => {
           reply = pizzaList();
         } else if (input === "menu") {
           reply = merge(menuText(s), welcomeMessage(s));
+        } else if (input === "ofertas") {
+          reply = merge(ofertasText(), welcomeMessage(s));
         } else {
           reply = merge(textMsg("❌ Opción inválida"), welcomeMessage(s));
         }
@@ -925,16 +1017,13 @@ app.post("/webhook", async (req, res) => {
         
         registrarPedido(from);
         
-        // Generar ID único para este pedido
         s.pedidoId = `${from}_${Date.now()}`;
         
-        // 🔥 ENVIAR A LA SUCURSAL CON BOTONES DE ACEPTAR/RECHAZAR
         const sucursalDestino = SUCURSALES[s.sucursal];
         const resumenPreliminar = buildPreliminarSummary(s);
         
         await sendMessage(sucursalDestino.telefono, resumenPreliminar);
         
-        // Botones para la sucursal
         await sendMessage(sucursalDestino.telefono, {
           type: "interactive",
           interactive: {
@@ -950,7 +1039,6 @@ app.post("/webhook", async (req, res) => {
           }
         });
         
-        // Mensaje al cliente
         await sendMessage(from, textMsg(
           "📋 *PEDIDO ENVIADO*\n\n" +
           "Tu pedido ha sido enviado a la sucursal.\n" +
@@ -958,7 +1046,6 @@ app.post("/webhook", async (req, res) => {
           "Te notificaremos en unos minutos. ⏳"
         ));
         
-        // No eliminamos la sesión, esperamos confirmación
         s.step = "esperando_confirmacion_sucursal";
         reply = null;
         break;
@@ -978,7 +1065,6 @@ app.post("/webhook", async (req, res) => {
               "✅ *Envía la FOTO del comprobante*"
             );
           } else {
-            // EFECTIVO - Enviar a sucursal con botones
             s.pedidoId = `${from}_${Date.now()}`;
             const sucursalDestino = SUCURSALES[s.sucursal];
             const resumenPreliminar = buildPreliminarSummary(s);
@@ -1063,9 +1149,32 @@ const welcomeMessage = (s) => {
     [
       { id: "pedido", title: "🛒 Hacer pedido" },
       { id: "menu", title: "📖 Ver menú" },
+      { id: "ofertas", title: "🎁 Ofertas" },
       { id: "cancelar", title: "❌ Cancelar" }
     ]
   );
+};
+
+const ofertasText = () => {
+  const hoy = new Date();
+  const dia = hoy.getDay();
+  const esFinDeSemana = dia === 5 || dia === 6 || dia === 0;
+  
+  let texto = "🎁 *OFERTAS ESPECIALES*\n\n";
+  
+  if (esFinDeSemana) {
+    texto += "🔥 *VÁLIDAS VIERNES A DOMINGO*\n\n";
+    texto += "🍕 *Pepperoni Grande*: $100 MXN\n";
+    texto += "   (Precio regular: $130)\n\n";
+    texto += "✨ ¡Aprovecha!";
+  } else {
+    texto += "❌ No hay ofertas disponibles hoy.\n\n";
+    texto += "Las ofertas son válidas de:\n";
+    texto += "📅 Viernes a Domingo\n\n";
+    texto += "¡Vuelve el fin de semana! 🎉";
+  }
+  
+  return textMsg(texto);
 };
 
 const menuText = (s) => {
@@ -1085,25 +1194,48 @@ const menuText = (s) => {
 };
 
 const pizzaList = () => {
-  return list("🍕 *ELIGE TU PIZZA*", [{
-    title: "PIZZAS",
-    rows: Object.keys(PRICES)
-      .filter(p => !["extra", "envio", "orilla_queso"].includes(p))
-      .map(p => ({
+  const hoy = new Date();
+  const dia = hoy.getDay();
+  const esFinDeSemana = dia === 5 || dia === 6 || dia === 0;
+  
+  const rows = Object.keys(PRICES)
+    .filter(p => !["extra", "envio", "orilla_queso"].includes(p))
+    .map(p => {
+      let descripcion = `G $${PRICES[p].grande} | EG $${PRICES[p].extragrande}`;
+      
+      // Mostrar oferta si aplica
+      if (esFinDeSemana && p === "pepperoni") {
+        descripcion = `G $100 (oferta) | EG $${PRICES[p].extragrande}`;
+      }
+      
+      return {
         id: p,
         title: `${PRICES[p].emoji} ${PRICES[p].nombre}`,
-        description: `G $${PRICES[p].grande} | EG $${PRICES[p].extragrande}`
-      }))
+        description: descripcion
+      };
+    });
+  
+  return list("🍕 *ELIGE TU PIZZA*", [{
+    title: "PIZZAS",
+    rows: rows
   }]);
 };
 
 const sizeButtons = (pizzaType) => {
   const pizza = PRICES[pizzaType];
+  const precioGrande = getPrecioOferta(pizzaType, "grande");
+  const precioExtragrande = getPrecioOferta(pizzaType, "extragrande");
+  
+  let grandeText = `Grande $${precioGrande}`;
+  if (pizzaType === "pepperoni" && precioGrande < pizza.grande) {
+    grandeText += " 🎁 OFERTA";
+  }
+  
   return buttons(
     `📏 *TAMAÑO*`,
     [
-      { id: "grande", title: `Grande $${pizza.grande}` },
-      { id: "extragrande", title: `Extra $${pizza.extragrande}` },
+      { id: "grande", title: grandeText },
+      { id: "extragrande", title: `Extra $${precioExtragrande}` },
       { id: "cancelar", title: "❌ Cancelar" }
     ]
   );
@@ -1205,11 +1337,13 @@ const confirmacionFinal = (s) => {
   let resumen = `📋 *CONFIRMA TU PEDIDO*\n\n`;
   
   s.pizzas.forEach((p, i) => {
+    const precio = getPrecioOferta(p.type, p.size);
     resumen += `🍕 Pizza ${i+1}: ${p.type} ${p.size}\n`;
     if (p.crust) resumen += `   🧀 Orilla (+$40)\n`;
     if (p.extras?.length) {
       resumen += `   ➕ Extras: ${p.extras.join(", ")} (+$${p.extras.length * 15})\n`;
     }
+    resumen += `   $${precio}\n`;
   });
   
   resumen += `\n💰 *TOTAL: $${total}*\n`;
@@ -1225,7 +1359,7 @@ const confirmacionFinal = (s) => {
 const calcularTotal = (s) => {
   let total = 0;
   s.pizzas.forEach(p => {
-    total += PRICES[p.type][p.size];
+    total += getPrecioOferta(p.type, p.size);
     if (p.crust) total += PRICES.orilla_queso.precio;
     total += p.extras.length * PRICES.extra.precio;
   });
@@ -1241,7 +1375,7 @@ const buildPreliminarSummary = (s) => {
   text += `👤 *Cliente:* ${s.clientNumber}\n\n`;
   
   s.pizzas.forEach((p, i) => {
-    const precio = PRICES[p.type][p.size];
+    const precio = getPrecioOferta(p.type, p.size);
     total += precio;
     text += `🍕 *Pizza ${i+1}*\n`;
     text += `   ${p.type} (${p.size})\n`;
@@ -1282,7 +1416,7 @@ const buildClienteSummary = (s) => {
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
   
   s.pizzas.forEach((p, i) => {
-    const precio = PRICES[p.type][p.size];
+    const precio = getPrecioOferta(p.type, p.size);
     total += precio;
     text += `🍕 *Pizza ${i+1}*\n`;
     text += `   ${p.type} (${p.size})\n`;
@@ -1328,7 +1462,7 @@ const buildNegocioSummary = (s) => {
   text += `👤 *Cliente:* ${s.clientNumber}\n\n`;
   
   s.pizzas.forEach((p, i) => {
-    const precio = PRICES[p.type][p.size];
+    const precio = getPrecioOferta(p.type, p.size);
     total += precio;
     text += `🍕 *Pizza ${i+1}*\n`;
     text += `   ${p.type} (${p.size})\n`;
@@ -1462,13 +1596,15 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V16 (Botones en todos los pedidos) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V18 (Ofertas + Pizzería ignorada) corriendo en puerto ${PORT}`);
   console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
   console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos`);
   console.log(`📊 Límite diario: ${MAX_PEDIDOS_POR_DIA} pedidos por día`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
+  console.log(`🕒 Horario: 11:00 AM - 9:00 PM (Martes CERRADO)`);
+  console.log(`🎁 Ofertas: Fin de semana (Pepperoni Grande $100)`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
