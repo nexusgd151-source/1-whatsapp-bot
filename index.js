@@ -2,6 +2,7 @@ const express = require("express");
 const fetch = require("node-fetch");
 const fs = require('fs');
 const path = require('path');
+const FormData = require('form-data');
 
 const app = express();
 app.use(express.json());
@@ -367,7 +368,6 @@ app.post("/webhook", async (req, res) => {
     if (msg.type === "image" || msg.type === "document") {
       console.log("🔥🔥🔥 IMAGEN DETECTADA 🔥🔥🔥");
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
-      console.log("📦 Mensaje COMPLETO:", JSON.stringify(msg, null, 2));
       
       // Verificar si el cliente tiene sesión
       if (!sessions[from]) {
@@ -430,13 +430,17 @@ app.post("/webhook", async (req, res) => {
       ));
       
       let imageId = null;
+      let mimeType = null;
+      
       if (msg.type === "image") {
         imageId = msg.image.id;
-        console.log(`🖼️ ID de imagen: ${imageId}`);
+        mimeType = msg.image.mime_type || "image/jpeg";
+        console.log(`🖼️ ID de imagen: ${imageId}, MIME: ${mimeType}`);
       } else if (msg.type === "document") {
         if (msg.document.mime_type?.startsWith("image/")) {
           imageId = msg.document.id;
-          console.log(`📄 Documento de imagen recibido, ID: ${imageId}`);
+          mimeType = msg.document.mime_type;
+          console.log(`📄 Documento de imagen recibido, ID: ${imageId}, MIME: ${mimeType}`);
         } else {
           await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
           return res.sendStatus(200);
@@ -470,62 +474,105 @@ app.post("/webhook", async (req, res) => {
         `⏰ *Hora:* ${horaActual}`;
       
       // =======================
-      // 🔥 ENVÍO CORREGIDO - DESCARGA Y REENVÍA LA IMAGEN
+      // 🔥 ENVÍO CORREGIDO - REENVÍO DIRECTO DE LA IMAGEN
       // =======================
       try {
-        console.log(`📥 Descargando imagen ${imageId}...`);
+        console.log(`📤 Reenviando imagen directamente a la sucursal...`);
         
-        // 1. DESCARGAR la imagen
-        const imageResponse = await fetch(`https://graph.facebook.com/v22.0/${imageId}`, {
-          headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
-        });
-        
-        if (!imageResponse.ok) {
-          throw new Error(`Error al descargar imagen: ${imageResponse.status}`);
-        }
-        
-        const imageBuffer = await imageResponse.buffer();
-        console.log(`✅ Imagen descargada, tamaño: ${imageBuffer.length} bytes`);
-        
-        // Determinar el tipo de contenido
-        const contentType = msg.image?.mime_type || msg.document?.mime_type || "image/jpeg";
-        
-        // 2. SUBIR la imagen a WhatsApp (nuevo ID)
-        const uploadResponse = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/media`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-            "Content-Type": contentType
-          },
-          body: imageBuffer
-        });
-        
-        if (!uploadResponse.ok) {
-          const errorText = await uploadResponse.text();
-          throw new Error(`Error al subir imagen: ${uploadResponse.status} - ${errorText}`);
-        }
-        
-        const uploadData = await uploadResponse.json();
-        const newImageId = uploadData.id;
-        console.log(`✅ Imagen subida con nuevo ID: ${newImageId}`);
-        
-        // 3. Enviar con el nuevo ID
+        // Intentar reenviar la imagen directamente usando el mismo ID
         await sendMessage(sucursal.telefono, {
           type: "image",
-          image: { id: newImageId },
-          caption: caption
+          image: { 
+            id: imageId,
+            caption: caption
+          }
         });
         
-        console.log(`✅ Imagen enviada a sucursal ${sucursal.telefono}`);
+        console.log(`✅ Imagen reenviada a sucursal ${sucursal.telefono}`);
       } catch (error) {
-        console.error(`❌ Error en proceso de imagen:`, error);
-        await sendMessage(sucursal.telefono, textMsg(
-          `⚠️ *ERROR AL ENVIAR COMPROBANTE*\n\n` +
-          `Cliente: ${from}\n` +
-          `Monto: $${s.totalTemp}\n\n` +
-          `El comprobante no pudo ser enviado automáticamente.\n` +
-          `Por favor, contacta al cliente.`
-        ));
+        console.error(`❌ Error al reenviar imagen:`, error);
+        
+        // Si falla el reenvío directo, intentamos con el método alternativo
+        try {
+          console.log(`🔄 Intentando método alternativo de descarga y subida...`);
+          
+          // 1. OBTENER URL de la imagen
+          const mediaResponse = await fetch(`https://graph.facebook.com/v22.0/${imageId}`, {
+            headers: { 
+              'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+            }
+          });
+          
+          if (!mediaResponse.ok) {
+            throw new Error(`Error al obtener URL de imagen: ${mediaResponse.status}`);
+          }
+          
+          const mediaData = await mediaResponse.json();
+          const imageUrl = mediaData.url;
+          console.log(`📥 URL de imagen obtenida: ${imageUrl}`);
+          
+          // 2. DESCARGAR la imagen
+          const imageResponse = await fetch(imageUrl, {
+            headers: { 
+              'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+            }
+          });
+          
+          if (!imageResponse.ok) {
+            throw new Error(`Error al descargar imagen: ${imageResponse.status}`);
+          }
+          
+          const imageBuffer = await imageResponse.buffer();
+          console.log(`✅ Imagen descargada, tamaño: ${imageBuffer.length} bytes`);
+          
+          // 3. SUBIR la imagen a WhatsApp (nuevo ID)
+          const formData = new FormData();
+          formData.append('file', imageBuffer, {
+            filename: 'comprobante.jpg',
+            contentType: mimeType || 'image/jpeg'
+          });
+          formData.append('messaging_product', 'whatsapp');
+          
+          const uploadResponse = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/media`, {
+            method: "POST",
+            headers: {
+              'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+              ...formData.getHeaders()
+            },
+            body: formData
+          });
+          
+          if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            throw new Error(`Error al subir imagen: ${uploadResponse.status} - ${errorText}`);
+          }
+          
+          const uploadData = await uploadResponse.json();
+          const newImageId = uploadData.id;
+          console.log(`✅ Imagen subida con nuevo ID: ${newImageId}`);
+          
+          // 4. Enviar con el nuevo ID
+          await sendMessage(sucursal.telefono, {
+            type: "image",
+            image: { 
+              id: newImageId,
+              caption: caption
+            }
+          });
+          
+          console.log(`✅ Imagen enviada a sucursal usando método alternativo`);
+        } catch (altError) {
+          console.error(`❌ Error en método alternativo:`, altError);
+          
+          // Si todo falla, enviar mensaje de error a la sucursal
+          await sendMessage(sucursal.telefono, textMsg(
+            `⚠️ *ERROR AL ENVIAR COMPROBANTE*\n\n` +
+            `Cliente: ${from}\n` +
+            `Monto: $${s.totalTemp}\n\n` +
+            `El comprobante no pudo ser enviado automáticamente.\n` +
+            `Por favor, contacta al cliente para obtener el comprobante manualmente.`
+          ));
+        }
       }
       
       // Enviar botones de verificación a la sucursal
@@ -1505,7 +1552,7 @@ async function sendMessage(to, payload) {
     const msgs = Array.isArray(payload) ? payload : [payload];
     for (const m of msgs) {
       console.log(`📤 Enviando a ${to}:`, JSON.stringify(m).substring(0, 200));
-      await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
+      const response = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${WHATSAPP_TOKEN}`,
@@ -1518,6 +1565,11 @@ async function sendMessage(to, payload) {
           ...m
         })
       });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Error en respuesta de WhatsApp: ${response.status} - ${errorText}`);
+      }
     }
   } catch (error) {
     console.error("❌ Error sendMessage:", error);
