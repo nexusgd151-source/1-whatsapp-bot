@@ -31,11 +31,11 @@ function guardarBloqueados() {
 }
 
 // =======================
-// 🏪 CONFIGURACIÓN DE SUCURSALES
+// 🏪 CONFIGURACIÓN DE SUCURSALES (con nombres corregidos)
 // =======================
 const SUCURSALES = {
   revolucion: {
-    nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
+    nombre: "PIZZERIA DE VILLA REVOLUCIÓN (Colonia Revolución)",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216391283842",
@@ -47,7 +47,7 @@ const SUCURSALES = {
     }
   },
   obrera: {
-    nombre: "PIZZERIA DE VILLA LA OBRERA",
+    nombre: "PIZZERIA DE VILLA LA OBRERA (Fraccionamiento La Labor)",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216393992508",
@@ -66,6 +66,12 @@ const SUCURSALES = {
 const SESSION_TIMEOUT = 10 * 60 * 1000;
 const WARNING_TIME = 5 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
+
+// Tiempos de preparación personalizados
+const TIEMPO_PREPARACION = {
+  recoger: "15-30 minutos",     // Para llevar
+  domicilio: "30-60 minutos"    // A domicilio
+};
 
 // Estados finales donde NO se deben enviar alertas de inactividad
 const ESTADOS_FINALES = ["esperando_confirmacion", "esperando_confirmacion_sucursal", "completado"];
@@ -653,11 +659,14 @@ app.post("/webhook", async (req, res) => {
           s.resumenEnviado = true;
         }
         
+        // Determinar el tiempo de preparación según el tipo de entrega
+        const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
+        
         await sendMessage(cliente, textMsg(
           "✅ *¡PAGO CONFIRMADO!*\n\n" +
           `🏪 *${sucursal.nombre}*\n\n` +
           "Tu pedido ya está en preparación.\n" +
-          "⏱️ Tiempo estimado: 30-40 min\n\n" +
+          `⏱️ Tiempo estimado: ${tiempoPrep}\n\n` +
           "¡Gracias por tu preferencia! 🙌"
         ));
         
@@ -739,11 +748,14 @@ app.post("/webhook", async (req, res) => {
         const pedidoId = replyId.replace("aceptar_", "");
         for (const [cliente, s] of Object.entries(sessions)) {
           if (s.pedidoId === pedidoId) {
+            // Determinar el tiempo de preparación según el tipo de entrega
+            const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
+            
             await sendMessage(cliente, textMsg(
               "✅ *¡PEDIDO ACEPTADO!*\n\n" +
               `🏪 *${SUCURSALES[s.sucursal].nombre}*\n\n` +
               "Tu pedido ha sido aceptado y ya está en preparación.\n" +
-              "⏱️ Tiempo estimado: 30-40 minutos\n\n" +
+              `⏱️ Tiempo estimado: ${tiempoPrep}\n\n` +
               "¡Gracias por tu preferencia! 🙌"
             ));
             await sendMessage(fromSucursal, textMsg(`✅ *PEDIDO ACEPTADO*\n\nCliente: ${cliente}`));
@@ -1148,7 +1160,7 @@ const seleccionarSucursal = () => {
     "🏪 *PIZZERÍAS VILLA*\n\n¿En qué sucursal quieres pedir?",
     [
       { id: "revolucion", title: "🌋 Revolución" },
-      { id: "obrera", title: "🏭 La Obrera" },
+      { id: "obrera", title: "🏭 La Obrera (La Labor)" },
       { id: "cancelar", title: "❌ Cancelar" }
     ]
   );
@@ -1584,6 +1596,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Sin límite de tiempo entre pedidos`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
+  console.log(`⏱️ Tiempo preparación: Recoger ${TIEMPO_PREPARACION.recoger} | Domicilio ${TIEMPO_PREPARACION.domicilio}`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
