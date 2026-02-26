@@ -38,7 +38,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391283842", // Número corregido: +52 1 6391283842
+    telefono: "5216391283842",
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -50,7 +50,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216393992508", // Número corregido: +52 1 6393992508
+    telefono: "5216393992508",
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -66,7 +66,6 @@ const SUCURSALES = {
 const SESSION_TIMEOUT = 10 * 60 * 1000;
 const WARNING_TIME = 5 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
-const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000; // 5 minutos entre pedidos (sin límite diario)
 
 // Estados finales donde NO se deben enviar alertas de inactividad
 const ESTADOS_FINALES = ["esperando_confirmacion", "esperando_confirmacion_sucursal", "completado"];
@@ -157,7 +156,6 @@ const resetSession = (from) => {
     pagoProcesado: false,
     pagosProcesados: {},
     resumenEnviado: false,
-    ultimoPedido: 0, // Solo para control de 5 minutos
     warningSent: false,
     pedidoId: null,
     pagoId: null
@@ -231,44 +229,6 @@ setInterval(async () => {
     }
   }
 }, 60000);
-
-// =======================
-// ⏱️ FUNCIÓN DE CONTROL DE TIEMPO ENTRE PEDIDOS (SOLO 5 MINUTOS, SIN LÍMITE DIARIO)
-// =======================
-function puedeHacerPedido(from) {
-  const ahora = Date.now();
-  const s = sessions[from];
-  
-  if (!s) return { permitido: true };
-  
-  // Solo verificar tiempo entre pedidos (5 minutos)
-  if (s.ultimoPedido > 0 && (ahora - s.ultimoPedido) < TIEMPO_MINIMO_ENTRE_PEDIDOS) {
-    const minutosRestantes = Math.ceil((TIEMPO_MINIMO_ENTRE_PEDIDOS - (ahora - s.ultimoPedido)) / 60000);
-    const segundosRestantes = Math.ceil((TIEMPO_MINIMO_ENTRE_PEDIDOS - (ahora - s.ultimoPedido)) / 1000);
-    
-    let tiempoTexto = "";
-    if (minutosRestantes > 0) {
-      tiempoTexto = `${minutosRestantes} minutos`;
-    } else {
-      tiempoTexto = `${segundosRestantes} segundos`;
-    }
-    
-    return {
-      permitido: false,
-      razon: "TIEMPO",
-      minutos: minutosRestantes,
-      mensaje: `⏳ *DEBES ESPERAR ${tiempoTexto}* ⏳\n\nPara evitar spam, solo puedes hacer un pedido cada 5 minutos.\n\nIntenta de nuevo en ${tiempoTexto}.`
-    };
-  }
-  
-  return { permitido: true };
-}
-
-function registrarPedido(from) {
-  const s = sessions[from];
-  if (!s) return;
-  s.ultimoPedido = Date.now(); // Solo guardamos la fecha del último pedido
-}
 
 // =======================
 // WEBHOOK - GET
@@ -455,7 +415,7 @@ app.post("/webhook", async (req, res) => {
       const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
       s.pagoId = pagoId;
       
-      // CORREGIDO: Formato de hora con AM/PM correcto
+      // Formato de hora con AM/PM correcto
       const horaActual = new Date().toLocaleString('es-MX', { 
         hour: '2-digit', 
         minute: '2-digit',
@@ -887,12 +847,6 @@ app.post("/webhook", async (req, res) => {
 
       case "welcome":
         if (input === "pedido") {
-          const check = puedeHacerPedido(from);
-          if (!check.permitido) {
-            await sendMessage(from, textMsg(check.mensaje));
-            reply = welcomeMessage(s);
-            break;
-          }
           s.step = "pizza_type";
           reply = pizzaList();
         } else if (input === "menu") {
@@ -1075,7 +1029,6 @@ app.post("/webhook", async (req, res) => {
         }
         s.pickupName = rawText;
         
-        registrarPedido(from);
         s.pedidoId = `${from}_${Date.now()}`;
         
         const sucursalDestino = SUCURSALES[s.sucursal];
@@ -1110,8 +1063,6 @@ app.post("/webhook", async (req, res) => {
 
       case "confirmacion_final":
         if (input === "confirmar") {
-          registrarPedido(from);
-          
           if (s.pagoMetodo === "Transferencia") {
             s.step = "ask_comprobante";
             reply = textMsg(
@@ -1511,7 +1462,7 @@ const buildNegocioSummary = (s) => {
     }
   }
   
-  // CORREGIDO: Formato de hora con AM/PM correcto
+  // Formato de hora con AM/PM correcto
   text += `\n🕒 ${new Date().toLocaleString('es-MX', { 
     hour12: true, 
     hour: '2-digit', 
@@ -1631,7 +1582,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📱 Número de sucursal REVOLUCIÓN: 5216391283842`);
   console.log(`📱 Número de sucursal OBRERA: 5216393992508`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
-  console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos (sin límite diario)`);
+  console.log(`⏱️ Sin límite de tiempo entre pedidos`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
