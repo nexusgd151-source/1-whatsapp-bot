@@ -37,7 +37,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607", // 👈 NÚMERO DE LA SUCURSAL (DONDE DEBEN LLEGAR LOS COMPROBANTES)
+    telefono: "5216391946965", // 👈 NÚMERO DE LA SUCURSAL (DONDE DEBEN LLEGAR LOS COMPROBANTES)
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -49,7 +49,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607", // 👈 MISMO NÚMERO PARA PRUEBAS
+    telefono: "5216391946965", // 👈 MISMO NÚMERO PARA PRUEBAS
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
