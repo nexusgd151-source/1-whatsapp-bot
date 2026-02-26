@@ -37,7 +37,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607",
+    telefono: "5216391759607", // 👈 NÚMERO DE LA SUCURSAL (DONDE DEBEN LLEGAR LOS COMPROBANTES)
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -49,7 +49,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607",
+    telefono: "5216391759607", // 👈 MISMO NÚMERO PARA PRUEBAS
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -372,9 +372,11 @@ app.post("/webhook", async (req, res) => {
       }
     }
 
-    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - VERSIÓN CORREGIDA
+    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - CON LOGS
     if (msg.type === "image" || msg.type === "document") {
+      console.log("🔥🔥🔥 IMAGEN DETECTADA 🔥🔥🔥");
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
+      console.log("📦 Mensaje COMPLETO:", JSON.stringify(msg, null, 2));
       
       // Verificar si el cliente tiene sesión
       if (!sessions[from]) {
@@ -384,6 +386,8 @@ app.post("/webhook", async (req, res) => {
       }
       
       const s = sessions[from];
+      console.log(`📍 Paso actual de ${from}: ${s.step}`);
+      console.log(`💰 Total temporal: $${s.totalTemp}`);
       
       // Verificar que tenga sucursal seleccionada
       if (!s.sucursal) {
@@ -393,6 +397,7 @@ app.post("/webhook", async (req, res) => {
       }
       
       const sucursal = SUCURSALES[s.sucursal];
+      console.log(`🏪 Sucursal seleccionada: ${sucursal.nombre} (${sucursal.telefono})`);
       
       // Verificar que esté en el paso correcto
       if (s.step !== "ask_comprobante") {
@@ -460,7 +465,7 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Generar ID único para este pago (timestamp + aleatorio para evitar duplicados)
+      // Generar ID único para este pago
       const timestamp = Date.now();
       const random = Math.floor(Math.random() * 1000);
       const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
@@ -481,6 +486,10 @@ app.post("/webhook", async (req, res) => {
         `💰 *Monto:* $${s.totalTemp} MXN\n` +
         `🆔 *Pago:* ${timestamp}\n` +
         `⏰ *Hora:* ${horaActual}`;
+      
+      console.log(`📤 Intentando enviar imagen a sucursal: ${sucursal.telefono}`);
+      console.log(`📤 ID de imagen: ${imageId}`);
+      console.log(`📤 Caption: ${caption}`);
       
       // Enviar imagen a la sucursal
       try {
@@ -1497,6 +1506,7 @@ async function sendMessage(to, payload) {
   try {
     const msgs = Array.isArray(payload) ? payload : [payload];
     for (const m of msgs) {
+      console.log(`📤 Enviando a ${to}:`, JSON.stringify(m).substring(0, 200));
       await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
         method: "POST",
         headers: {
@@ -1534,9 +1544,9 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V17 (Comprobantes Corregidos) corriendo en puerto ${PORT}`);
-  console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
-  console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
+  console.log(`🚀 Bot V17 (Con Logs) corriendo en puerto ${PORT}`);
+  console.log(`📱 Número de cliente (pruebas): 5216391946965`);
+  console.log(`📱 Número de sucursal (pruebas): 5216391759607`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos`);
   console.log(`📊 Límite diario: ${MAX_PEDIDOS_POR_DIA} pedidos por día`);
