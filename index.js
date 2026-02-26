@@ -37,7 +37,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607", // 👈 NÚMERO DE LA SUCURSAL (DONDE DEBEN LLEGAR LOS COMPROBANTES)
+    telefono: "5216391759607",
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -49,7 +49,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607", // 👈 MISMO NÚMERO PARA PRUEBAS
+    telefono: "5216391759607",
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -62,14 +62,11 @@ const SUCURSALES = {
 // =======================
 // ⏰ CONFIGURACIÓN DE SESIÓN (10 MINUTOS)
 // =======================
-const SESSION_TIMEOUT = 10 * 60 * 1000; // 10 minutos
-const WARNING_TIME = 5 * 60 * 1000;      // Aviso a los 5 minutos
-
+const SESSION_TIMEOUT = 10 * 60 * 1000;
+const WARNING_TIME = 5 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
-
-// ⏱️ CONTROL DE TIEMPO ENTRE PEDIDOS
-const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000; // 5 minutos
-const MAX_PEDIDOS_POR_DIA = 5; // Máximo 5 pedidos por día
+const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000;
+const MAX_PEDIDOS_POR_DIA = 5;
 
 const PRICES = {
   pepperoni: { 
@@ -204,22 +201,18 @@ setInterval(async () => {
     
     if (tiempoInactivo > SESSION_TIMEOUT) {
       console.log(`⏰ Sesión expirada automáticamente: ${from}`);
-      
       await sendMessage(from, textMsg(
         "⏰ *SESIÓN EXPIRADA*\n\n" +
         "Llevas más de 10 minutos sin actividad.\n" +
         "Tu pedido ha sido cancelado.\n\n" +
         "Escribe *Hola* para comenzar de nuevo. 🍕"
       )).catch(e => console.log("Error al enviar mensaje de expiración"));
-      
       delete sessions[from];
     }
     else if (tiempoInactivo > WARNING_TIME && !s.warningSent && s.step !== "completado") {
       console.log(`⏳ Enviando aviso a ${from} (${Math.floor(tiempoInactivo / 60000)} min inactivo)`);
-      
       s.warningSent = true;
       const minutosRestantes = Math.ceil((SESSION_TIMEOUT - tiempoInactivo) / 60000);
-      
       await sendMessage(from, textMsg(
         "⏳ *¿SIGUES AHÍ?*\n\n" +
         `Llevas ${Math.floor(tiempoInactivo / 60000)} minutos sin actividad.\n` +
@@ -269,9 +262,7 @@ function puedeHacerPedido(from) {
 function registrarPedido(from) {
   const s = sessions[from];
   if (!s) return;
-  
   s.ultimoPedido = Date.now();
-  
   const hoy = new Date().toDateString();
   if (s.fechaUltimoPedido !== hoy) {
     s.pedidosHoy = 1;
@@ -372,7 +363,7 @@ app.post("/webhook", async (req, res) => {
       }
     }
 
-    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - CON LOGS
+    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - VERSIÓN CORREGIDA
     if (msg.type === "image" || msg.type === "document") {
       console.log("🔥🔥🔥 IMAGEN DETECTADA 🔥🔥🔥");
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
@@ -389,7 +380,6 @@ app.post("/webhook", async (req, res) => {
       console.log(`📍 Paso actual de ${from}: ${s.step}`);
       console.log(`💰 Total temporal: $${s.totalTemp}`);
       
-      // Verificar que tenga sucursal seleccionada
       if (!s.sucursal) {
         console.log(`❌ Cliente ${from} no tiene sucursal seleccionada`);
         await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
@@ -399,7 +389,6 @@ app.post("/webhook", async (req, res) => {
       const sucursal = SUCURSALES[s.sucursal];
       console.log(`🏪 Sucursal seleccionada: ${sucursal.nombre} (${sucursal.telefono})`);
       
-      // Verificar que esté en el paso correcto
       if (s.step !== "ask_comprobante") {
         console.log(`❌ Cliente ${from} envió imagen en paso incorrecto: ${s.step}`);
         await sendMessage(from, textMsg(
@@ -409,7 +398,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Verificar que no haya enviado ya un comprobante
       if (s.comprobanteCount >= 1) {
         console.log(`⚠️ Cliente ${from} intentó enviar múltiples comprobantes`);
         await sendMessage(from, textMsg(
@@ -420,7 +408,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Verificar que haya un monto válido
       if (!s.totalTemp || s.totalTemp <= 0) {
         console.log(`❌ Cliente ${from} no tiene monto válido: ${s.totalTemp}`);
         await sendMessage(from, textMsg(
@@ -431,12 +418,10 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Incrementar contador de comprobantes
       s.comprobanteCount++;
       s.lastAction = now();
       s.warningSent = false;
       
-      // Confirmar al cliente
       await sendMessage(from, textMsg(
         "✅ *COMPROBANTE RECIBIDO*\n\n" +
         "Hemos recibido tu comprobante.\n" +
@@ -444,7 +429,6 @@ app.post("/webhook", async (req, res) => {
         "Te confirmaremos en minutos. ¡Gracias! 🙌"
       ));
       
-      // Obtener el ID de la imagen
       let imageId = null;
       if (msg.type === "image") {
         imageId = msg.image.id;
@@ -465,7 +449,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Generar ID único para este pago
       const timestamp = Date.now();
       const random = Math.floor(Math.random() * 1000);
       const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
@@ -477,7 +460,6 @@ app.post("/webhook", async (req, res) => {
         hour12: true 
       });
       
-      // Preparar caption para la imagen
       const caption = 
         `🖼️ *COMPROBANTE DE PAGO*\n` +
         `━━━━━━━━━━━━━━━━━━\n\n` +
@@ -487,20 +469,56 @@ app.post("/webhook", async (req, res) => {
         `🆔 *Pago:* ${timestamp}\n` +
         `⏰ *Hora:* ${horaActual}`;
       
-      console.log(`📤 Intentando enviar imagen a sucursal: ${sucursal.telefono}`);
-      console.log(`📤 ID de imagen: ${imageId}`);
-      console.log(`📤 Caption: ${caption}`);
-      
-      // Enviar imagen a la sucursal
+      // =======================
+      // 🔥 ENVÍO CORREGIDO - DESCARGA Y REENVÍA LA IMAGEN
+      // =======================
       try {
+        console.log(`📥 Descargando imagen ${imageId}...`);
+        
+        // 1. DESCARGAR la imagen
+        const imageResponse = await fetch(`https://graph.facebook.com/v22.0/${imageId}`, {
+          headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+        });
+        
+        if (!imageResponse.ok) {
+          throw new Error(`Error al descargar imagen: ${imageResponse.status}`);
+        }
+        
+        const imageBuffer = await imageResponse.buffer();
+        console.log(`✅ Imagen descargada, tamaño: ${imageBuffer.length} bytes`);
+        
+        // Determinar el tipo de contenido
+        const contentType = msg.image?.mime_type || msg.document?.mime_type || "image/jpeg";
+        
+        // 2. SUBIR la imagen a WhatsApp (nuevo ID)
+        const uploadResponse = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/media`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            "Content-Type": contentType
+          },
+          body: imageBuffer
+        });
+        
+        if (!uploadResponse.ok) {
+          const errorText = await uploadResponse.text();
+          throw new Error(`Error al subir imagen: ${uploadResponse.status} - ${errorText}`);
+        }
+        
+        const uploadData = await uploadResponse.json();
+        const newImageId = uploadData.id;
+        console.log(`✅ Imagen subida con nuevo ID: ${newImageId}`);
+        
+        // 3. Enviar con el nuevo ID
         await sendMessage(sucursal.telefono, {
           type: "image",
-          image: { id: imageId },
+          image: { id: newImageId },
           caption: caption
         });
+        
         console.log(`✅ Imagen enviada a sucursal ${sucursal.telefono}`);
       } catch (error) {
-        console.error(`❌ Error enviando imagen:`, error);
+        console.error(`❌ Error en proceso de imagen:`, error);
         await sendMessage(sucursal.telefono, textMsg(
           `⚠️ *ERROR AL ENVIAR COMPROBANTE*\n\n` +
           `Cliente: ${from}\n` +
@@ -526,7 +544,6 @@ app.post("/webhook", async (req, res) => {
         }
       });
       
-      // Actualizar estado de la sesión
       s.comprobanteEnviado = true;
       s.step = "esperando_confirmacion";
       
@@ -544,7 +561,6 @@ app.post("/webhook", async (req, res) => {
       
       if (replyId.startsWith("bloquear_")) {
         const numeroABloquear = replyId.replace("bloquear_", "");
-        
         blockedNumbers.add(numeroABloquear);
         guardarBloqueados();
         
@@ -575,13 +591,11 @@ app.post("/webhook", async (req, res) => {
       
       if (replyId.startsWith("desbloquear_")) {
         const numeroADesbloquear = replyId.replace("desbloquear_", "");
-        
         if (blockedNumbers.has(numeroADesbloquear)) {
           blockedNumbers.delete(numeroADesbloquear);
           guardarBloqueados();
           await sendMessage(fromSucursal, textMsg(`✅ *CLIENTE DESBLOQUEADO*\n\nNúmero: ${numeroADesbloquear}`));
         }
-        
         return res.sendStatus(200);
       }
       
@@ -605,7 +619,6 @@ app.post("/webhook", async (req, res) => {
         
         const s = sessions[cliente];
         
-        // Verificar que el ID del pago coincida
         if (s.pagoId !== pagoIdCompleto) {
           console.log(`⚠️ ID de pago no coincide. Esperado: ${s.pagoId}, Recibido: ${pagoIdCompleto}`);
           await sendMessage(fromSucursal, textMsg(
@@ -661,7 +674,6 @@ app.post("/webhook", async (req, res) => {
         const random = partes[5];
         
         const pagoIdCompleto = `${cliente}_${sucursalKey}_${timestamp}_${random}`;
-        
         const sucursal = SUCURSALES[sucursalKey];
         
         if (!sucursal || !sessions[cliente]) {
@@ -709,10 +721,8 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // 🔥 ACEPTAR PEDIDO (EFECTIVO O RECOGER)
       if (replyId.startsWith("aceptar_")) {
         const pedidoId = replyId.replace("aceptar_", "");
-        
         for (const [cliente, s] of Object.entries(sessions)) {
           if (s.pedidoId === pedidoId) {
             await sendMessage(cliente, textMsg(
@@ -722,20 +732,15 @@ app.post("/webhook", async (req, res) => {
               "⏱️ Tiempo estimado: 30-40 minutos\n\n" +
               "¡Gracias por tu preferencia! 🙌"
             ));
-            
-            await sendMessage(fromSucursal, textMsg(
-              `✅ *PEDIDO ACEPTADO*\n\nCliente: ${cliente}`
-            ));
+            await sendMessage(fromSucursal, textMsg(`✅ *PEDIDO ACEPTADO*\n\nCliente: ${cliente}`));
             break;
           }
         }
         return res.sendStatus(200);
       }
       
-      // 🔥 RECHAZAR PEDIDO (EFECTIVO O RECOGER)
       if (replyId.startsWith("rechazar_")) {
         const pedidoId = replyId.replace("rechazar_", "");
-        
         for (const [cliente, s] of Object.entries(sessions)) {
           if (s.pedidoId === pedidoId) {
             await sendMessage(cliente, textMsg(
@@ -745,10 +750,7 @@ app.post("/webhook", async (req, res) => {
               "Por favor, contacta a la sucursal para más información.\n\n" +
               `📞 Teléfono: ${SUCURSALES[s.sucursal].telefono}`
             ));
-            
-            await sendMessage(fromSucursal, textMsg(
-              `❌ *PEDIDO RECHAZADO*\n\nCliente: ${cliente}`
-            ));
+            await sendMessage(fromSucursal, textMsg(`❌ *PEDIDO RECHAZADO*\n\nCliente: ${cliente}`));
             break;
           }
         }
@@ -978,7 +980,6 @@ app.post("/webhook", async (req, res) => {
             break;
           }
         }
-        
         s.step = "ask_address";
         reply = textMsg("📍 *DIRECCIÓN*\n\nEscribe tu dirección completa:");
         break;
@@ -1011,14 +1012,12 @@ app.post("/webhook", async (req, res) => {
         s.pickupName = rawText;
         
         registrarPedido(from);
-        
         s.pedidoId = `${from}_${Date.now()}`;
         
         const sucursalDestino = SUCURSALES[s.sucursal];
         const resumenPreliminar = buildPreliminarSummary(s);
         
         await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-        
         await sendMessage(sucursalDestino.telefono, {
           type: "interactive",
           interactive: {
@@ -1065,7 +1064,6 @@ app.post("/webhook", async (req, res) => {
             const resumenPreliminar = buildPreliminarSummary(s);
             
             await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-            
             await sendMessage(sucursalDestino.telefono, {
               type: "interactive",
               interactive: {
@@ -1544,7 +1542,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V17 (Con Logs) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V18 (Comprobantes con Descarga) corriendo en puerto ${PORT}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965`);
   console.log(`📱 Número de sucursal (pruebas): 5216391759607`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
