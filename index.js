@@ -69,6 +69,9 @@ const UMBRAL_TRANSFERENCIA = 450;
 const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000;
 const MAX_PEDIDOS_POR_DIA = 5;
 
+// Estados finales donde NO se deben enviar alertas de inactividad
+const ESTADOS_FINALES = ["esperando_confirmacion", "esperando_confirmacion_sucursal", "completado"];
+
 const PRICES = {
   pepperoni: { 
     nombre: "Pepperoni", 
@@ -166,7 +169,7 @@ const resetSession = (from) => {
   };
 };
 
-const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
+const isExpired = (s) => !ESTADOS_FINALES.includes(s.step) && now() - s.lastAction > SESSION_TIMEOUT;
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
 
 // =======================
@@ -174,6 +177,11 @@ const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_com
 // =======================
 async function checkSessionWarning(from, s) {
   if (!sessions[from]) return true;
+  
+  // 🚫 NO enviar alertas si el pedido ya está en estados finales
+  if (ESTADOS_FINALES.includes(s.step)) {
+    return true;
+  }
   
   const tiempoInactivo = now() - s.lastAction;
   
@@ -198,6 +206,11 @@ setInterval(async () => {
   const ahora = now();
   
   for (const [from, s] of Object.entries(sessions)) {
+    // 🚫 NO procesar si el pedido ya está en estados finales
+    if (ESTADOS_FINALES.includes(s.step)) {
+      continue;
+    }
+    
     const tiempoInactivo = ahora - s.lastAction;
     
     if (tiempoInactivo > SESSION_TIMEOUT) {
@@ -210,7 +223,7 @@ setInterval(async () => {
       )).catch(e => console.log("Error al enviar mensaje de expiración"));
       delete sessions[from];
     }
-    else if (tiempoInactivo > WARNING_TIME && !s.warningSent && s.step !== "completado") {
+    else if (tiempoInactivo > WARNING_TIME && !s.warningSent) {
       console.log(`⏳ Enviando aviso a ${from} (${Math.floor(tiempoInactivo / 60000)} min inactivo)`);
       s.warningSent = true;
       const minutosRestantes = Math.ceil((SESSION_TIMEOUT - tiempoInactivo) / 60000);
@@ -710,6 +723,10 @@ app.post("/webhook", async (req, res) => {
           "🛑 *Los botones de este pago ya no son válidos.*"
         ));
         
+        // Marcar como completado para evitar alertas de inactividad
+        s.step = "completado";
+        s.lastAction = now();
+        
         return res.sendStatus(200);
       }
       
@@ -765,6 +782,10 @@ app.post("/webhook", async (req, res) => {
           "🛑 *Los botones de este pago ya no son válidos.*"
         ));
         
+        // Marcar como completado (aunque sea rechazado, el proceso terminó)
+        s.step = "completado";
+        s.lastAction = now();
+        
         return res.sendStatus(200);
       }
       
@@ -780,6 +801,12 @@ app.post("/webhook", async (req, res) => {
               "¡Gracias por tu preferencia! 🙌"
             ));
             await sendMessage(fromSucursal, textMsg(`✅ *PEDIDO ACEPTADO*\n\nCliente: ${cliente}`));
+            
+            // Si es pago en efectivo, marcar como completado
+            if (s.pagoMetodo === "Efectivo") {
+              s.step = "completado";
+              s.lastAction = now();
+            }
             break;
           }
         }
@@ -798,6 +825,10 @@ app.post("/webhook", async (req, res) => {
               `📞 Teléfono: ${SUCURSALES[s.sucursal].telefono}`
             ));
             await sendMessage(fromSucursal, textMsg(`❌ *PEDIDO RECHAZADO*\n\nCliente: ${cliente}`));
+            
+            // Marcar como completado (aunque sea rechazado, el proceso terminó)
+            s.step = "completado";
+            s.lastAction = now();
             break;
           }
         }
@@ -1155,6 +1186,10 @@ app.post("/webhook", async (req, res) => {
         
       case "esperando_confirmacion_sucursal":
         reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nTe avisaremos cuando sea aceptado. 🍕");
+        break;
+        
+      case "completado":
+        reply = textMsg("✅ *PEDIDO COMPLETADO*\n\nGracias por tu compra. ¿Quieres hacer otro pedido? Escribe *Hola* para comenzar de nuevo. 🍕");
         break;
     }
 
@@ -1582,7 +1617,10 @@ async function sendMessage(to, payload) {
 setInterval(() => {
   const nowTime = now();
   Object.keys(sessions).forEach(key => {
-    if (nowTime - sessions[key].lastAction > SESSION_TIMEOUT) {
+    const s = sessions[key];
+    
+    // Solo eliminar si no está en estado final Y ha expirado
+    if (!ESTADOS_FINALES.includes(s.step) && nowTime - s.lastAction > SESSION_TIMEOUT) {
       delete sessions[key];
       console.log(`🧹 Sesión expirada: ${key}`);
     }
@@ -1604,4 +1642,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
+  console.log(`🛑 Estados finales sin alertas: ${ESTADOS_FINALES.join(", ")}`);
 });
