@@ -38,7 +38,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607",
+    telefono: "5216391283842", // Número corregido: +52 1 6391283842
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -50,7 +50,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607",
+    telefono: "5216393992508", // Número corregido: +52 1 6393992508
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -1628,7 +1628,8 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Bot V18 (Comprobantes con Descarga) corriendo en puerto ${PORT}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965`);
-  console.log(`📱 Número de sucursal (pruebas): 5216391759607`);
+  console.log(`📱 Número de sucursal REVOLUCIÓN: 5216391283842`);
+  console.log(`📱 Número de sucursal OBRERA: 5216393992508`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos (sin límite diario)`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
