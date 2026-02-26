@@ -2,6 +2,7 @@ const express = require("express");
 const fetch = require("node-fetch");
 const fs = require('fs');
 const path = require('path');
+const FormData = require('form-data');
 
 const app = express();
 app.use(express.json());
@@ -37,7 +38,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216393992508",
+    telefono: "5216391283842", // Número corregido: +52 1 6391283842
     domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -49,7 +50,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA OBRERA",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216393992508",
+    telefono: "5216393992508", // Número corregido: +52 1 6393992508
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -62,14 +63,13 @@ const SUCURSALES = {
 // =======================
 // ⏰ CONFIGURACIÓN DE SESIÓN (10 MINUTOS)
 // =======================
-const SESSION_TIMEOUT = 10 * 60 * 1000; // 10 minutos
-const WARNING_TIME = 5 * 60 * 1000;      // Aviso a los 5 minutos
-
+const SESSION_TIMEOUT = 10 * 60 * 1000;
+const WARNING_TIME = 5 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
+const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000; // 5 minutos entre pedidos (sin límite diario)
 
-// ⏱️ CONTROL DE TIEMPO ENTRE PEDIDOS
-const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000; // 5 minutos
-const MAX_PEDIDOS_POR_DIA = 5; // Máximo 5 pedidos por día
+// Estados finales donde NO se deben enviar alertas de inactividad
+const ESTADOS_FINALES = ["esperando_confirmacion", "esperando_confirmacion_sucursal", "completado"];
 
 const PRICES = {
   pepperoni: { 
@@ -157,18 +157,14 @@ const resetSession = (from) => {
     pagoProcesado: false,
     pagosProcesados: {},
     resumenEnviado: false,
-    ultimoPedido: 0,
-    pedidosHoy: 0,
-    fechaUltimoPedido: null,
-    pagoResultado: null,
-    pagoProcesadoPor: null,
-    pagoProcesadoEn: null,
+    ultimoPedido: 0, // Solo para control de 5 minutos
     warningSent: false,
-    pedidoId: null
+    pedidoId: null,
+    pagoId: null
   };
 };
 
-const isExpired = (s) => now() - s.lastAction > SESSION_TIMEOUT;
+const isExpired = (s) => !ESTADOS_FINALES.includes(s.step) && now() - s.lastAction > SESSION_TIMEOUT;
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
 
 // =======================
@@ -176,6 +172,11 @@ const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_com
 // =======================
 async function checkSessionWarning(from, s) {
   if (!sessions[from]) return true;
+  
+  // 🚫 NO enviar alertas si el pedido ya está en estados finales
+  if (ESTADOS_FINALES.includes(s.step)) {
+    return true;
+  }
   
   const tiempoInactivo = now() - s.lastAction;
   
@@ -200,26 +201,27 @@ setInterval(async () => {
   const ahora = now();
   
   for (const [from, s] of Object.entries(sessions)) {
+    // 🚫 NO procesar si el pedido ya está en estados finales
+    if (ESTADOS_FINALES.includes(s.step)) {
+      continue;
+    }
+    
     const tiempoInactivo = ahora - s.lastAction;
     
     if (tiempoInactivo > SESSION_TIMEOUT) {
       console.log(`⏰ Sesión expirada automáticamente: ${from}`);
-      
       await sendMessage(from, textMsg(
         "⏰ *SESIÓN EXPIRADA*\n\n" +
         "Llevas más de 10 minutos sin actividad.\n" +
         "Tu pedido ha sido cancelado.\n\n" +
         "Escribe *Hola* para comenzar de nuevo. 🍕"
       )).catch(e => console.log("Error al enviar mensaje de expiración"));
-      
       delete sessions[from];
     }
-    else if (tiempoInactivo > WARNING_TIME && !s.warningSent && s.step !== "completado") {
+    else if (tiempoInactivo > WARNING_TIME && !s.warningSent) {
       console.log(`⏳ Enviando aviso a ${from} (${Math.floor(tiempoInactivo / 60000)} min inactivo)`);
-      
       s.warningSent = true;
       const minutosRestantes = Math.ceil((SESSION_TIMEOUT - tiempoInactivo) / 60000);
-      
       await sendMessage(from, textMsg(
         "⏳ *¿SIGUES AHÍ?*\n\n" +
         `Llevas ${Math.floor(tiempoInactivo / 60000)} minutos sin actividad.\n` +
@@ -231,7 +233,7 @@ setInterval(async () => {
 }, 60000);
 
 // =======================
-// ⏱️ FUNCIONES DE CONTROL DE TIEMPO ENTRE PEDIDOS
+// ⏱️ FUNCIÓN DE CONTROL DE TIEMPO ENTRE PEDIDOS (SOLO 5 MINUTOS, SIN LÍMITE DIARIO)
 // =======================
 function puedeHacerPedido(from) {
   const ahora = Date.now();
@@ -239,27 +241,23 @@ function puedeHacerPedido(from) {
   
   if (!s) return { permitido: true };
   
+  // Solo verificar tiempo entre pedidos (5 minutos)
   if (s.ultimoPedido > 0 && (ahora - s.ultimoPedido) < TIEMPO_MINIMO_ENTRE_PEDIDOS) {
     const minutosRestantes = Math.ceil((TIEMPO_MINIMO_ENTRE_PEDIDOS - (ahora - s.ultimoPedido)) / 60000);
+    const segundosRestantes = Math.ceil((TIEMPO_MINIMO_ENTRE_PEDIDOS - (ahora - s.ultimoPedido)) / 1000);
+    
+    let tiempoTexto = "";
+    if (minutosRestantes > 0) {
+      tiempoTexto = `${minutosRestantes} minutos`;
+    } else {
+      tiempoTexto = `${segundosRestantes} segundos`;
+    }
+    
     return {
       permitido: false,
       razon: "TIEMPO",
       minutos: minutosRestantes,
-      mensaje: `⚠️ *DEBES ESPERAR ${minutosRestantes} MINUTOS* ⚠️\n\nPara evitar spam, solo puedes hacer un pedido cada 5 minutos.\n\nIntenta de nuevo en ${minutosRestantes} minutos. ⏳`
-    };
-  }
-  
-  const hoy = new Date().toDateString();
-  if (s.fechaUltimoPedido !== hoy) {
-    s.pedidosHoy = 0;
-    s.fechaUltimoPedido = hoy;
-  }
-  
-  if (s.pedidosHoy >= MAX_PEDIDOS_POR_DIA) {
-    return {
-      permitido: false,
-      razon: "LIMITE_DIARIO",
-      mensaje: `⚠️ *LÍMITE DIARIO ALCANZADO* ⚠️\n\nHoy ya realizaste ${MAX_PEDIDOS_POR_DIA} pedidos.\n\nVuelve mañana para hacer otro pedido. 🍕`
+      mensaje: `⏳ *DEBES ESPERAR ${tiempoTexto}* ⏳\n\nPara evitar spam, solo puedes hacer un pedido cada 5 minutos.\n\nIntenta de nuevo en ${tiempoTexto}.`
     };
   }
   
@@ -269,16 +267,7 @@ function puedeHacerPedido(from) {
 function registrarPedido(from) {
   const s = sessions[from];
   if (!s) return;
-  
-  s.ultimoPedido = Date.now();
-  
-  const hoy = new Date().toDateString();
-  if (s.fechaUltimoPedido !== hoy) {
-    s.pedidosHoy = 1;
-    s.fechaUltimoPedido = hoy;
-  } else {
-    s.pedidosHoy++;
-  }
+  s.ultimoPedido = Date.now(); // Solo guardamos la fecha del último pedido
 }
 
 // =======================
@@ -372,8 +361,9 @@ app.post("/webhook", async (req, res) => {
       }
     }
 
-    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - VERSIÓN CORREGIDA
+    // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image" || msg.type === "document") {
+      console.log("🔥🔥🔥 IMAGEN DETECTADA 🔥🔥🔥");
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
       
       // Verificar si el cliente tiene sesión
@@ -384,8 +374,9 @@ app.post("/webhook", async (req, res) => {
       }
       
       const s = sessions[from];
+      console.log(`📍 Paso actual de ${from}: ${s.step}`);
+      console.log(`💰 Total temporal: $${s.totalTemp}`);
       
-      // Verificar que tenga sucursal seleccionada
       if (!s.sucursal) {
         console.log(`❌ Cliente ${from} no tiene sucursal seleccionada`);
         await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
@@ -393,8 +384,8 @@ app.post("/webhook", async (req, res) => {
       }
       
       const sucursal = SUCURSALES[s.sucursal];
+      console.log(`🏪 Sucursal seleccionada: ${sucursal.nombre} (${sucursal.telefono})`);
       
-      // Verificar que esté en el paso correcto
       if (s.step !== "ask_comprobante") {
         console.log(`❌ Cliente ${from} envió imagen en paso incorrecto: ${s.step}`);
         await sendMessage(from, textMsg(
@@ -404,7 +395,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Verificar que no haya enviado ya un comprobante
       if (s.comprobanteCount >= 1) {
         console.log(`⚠️ Cliente ${from} intentó enviar múltiples comprobantes`);
         await sendMessage(from, textMsg(
@@ -415,7 +405,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Verificar que haya un monto válido
       if (!s.totalTemp || s.totalTemp <= 0) {
         console.log(`❌ Cliente ${from} no tiene monto válido: ${s.totalTemp}`);
         await sendMessage(from, textMsg(
@@ -426,12 +415,10 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Incrementar contador de comprobantes
       s.comprobanteCount++;
       s.lastAction = now();
       s.warningSent = false;
       
-      // Confirmar al cliente
       await sendMessage(from, textMsg(
         "✅ *COMPROBANTE RECIBIDO*\n\n" +
         "Hemos recibido tu comprobante.\n" +
@@ -439,15 +426,18 @@ app.post("/webhook", async (req, res) => {
         "Te confirmaremos en minutos. ¡Gracias! 🙌"
       ));
       
-      // Obtener el ID de la imagen
       let imageId = null;
+      let mimeType = null;
+      
       if (msg.type === "image") {
         imageId = msg.image.id;
-        console.log(`🖼️ ID de imagen: ${imageId}`);
+        mimeType = msg.image.mime_type || "image/jpeg";
+        console.log(`🖼️ ID de imagen: ${imageId}, MIME: ${mimeType}`);
       } else if (msg.type === "document") {
         if (msg.document.mime_type?.startsWith("image/")) {
           imageId = msg.document.id;
-          console.log(`📄 Documento de imagen recibido, ID: ${imageId}`);
+          mimeType = msg.document.mime_type;
+          console.log(`📄 Documento de imagen recibido, ID: ${imageId}, MIME: ${mimeType}`);
         } else {
           await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
           return res.sendStatus(200);
@@ -460,19 +450,19 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Generar ID único para este pago (timestamp + aleatorio para evitar duplicados)
       const timestamp = Date.now();
       const random = Math.floor(Math.random() * 1000);
       const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
       s.pagoId = pagoId;
       
+      // CORREGIDO: Formato de hora con AM/PM correcto
       const horaActual = new Date().toLocaleString('es-MX', { 
         hour: '2-digit', 
         minute: '2-digit',
-        hour12: true 
+        hour12: true,
+        hourCycle: 'h12'
       });
       
-      // Preparar caption para la imagen
       const caption = 
         `🖼️ *COMPROBANTE DE PAGO*\n` +
         `━━━━━━━━━━━━━━━━━━\n\n` +
@@ -482,23 +472,106 @@ app.post("/webhook", async (req, res) => {
         `🆔 *Pago:* ${timestamp}\n` +
         `⏰ *Hora:* ${horaActual}`;
       
-      // Enviar imagen a la sucursal
+      // =======================
+      // 🔥 ENVÍO DE LA IMAGEN
+      // =======================
       try {
+        console.log(`📤 Reenviando imagen directamente a la sucursal...`);
+        
+        // Intentar reenviar la imagen directamente usando el mismo ID
         await sendMessage(sucursal.telefono, {
           type: "image",
-          image: { id: imageId },
-          caption: caption
+          image: { 
+            id: imageId,
+            caption: caption
+          }
         });
-        console.log(`✅ Imagen enviada a sucursal ${sucursal.telefono}`);
+        
+        console.log(`✅ Imagen reenviada a sucursal ${sucursal.telefono}`);
       } catch (error) {
-        console.error(`❌ Error enviando imagen:`, error);
-        await sendMessage(sucursal.telefono, textMsg(
-          `⚠️ *ERROR AL ENVIAR COMPROBANTE*\n\n` +
-          `Cliente: ${from}\n` +
-          `Monto: $${s.totalTemp}\n\n` +
-          `El comprobante no pudo ser enviado automáticamente.\n` +
-          `Por favor, contacta al cliente.`
-        ));
+        console.error(`❌ Error al reenviar imagen:`, error);
+        
+        // Si falla el reenvío directo, intentamos con el método alternativo
+        try {
+          console.log(`🔄 Intentando método alternativo de descarga y subida...`);
+          
+          // 1. OBTENER URL de la imagen
+          const mediaResponse = await fetch(`https://graph.facebook.com/v22.0/${imageId}`, {
+            headers: { 
+              'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+            }
+          });
+          
+          if (!mediaResponse.ok) {
+            throw new Error(`Error al obtener URL de imagen: ${mediaResponse.status}`);
+          }
+          
+          const mediaData = await mediaResponse.json();
+          const imageUrl = mediaData.url;
+          console.log(`📥 URL de imagen obtenida: ${imageUrl}`);
+          
+          // 2. DESCARGAR la imagen
+          const imageResponse = await fetch(imageUrl, {
+            headers: { 
+              'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+            }
+          });
+          
+          if (!imageResponse.ok) {
+            throw new Error(`Error al descargar imagen: ${imageResponse.status}`);
+          }
+          
+          const imageBuffer = await imageResponse.buffer();
+          console.log(`✅ Imagen descargada, tamaño: ${imageBuffer.length} bytes`);
+          
+          // 3. SUBIR la imagen a WhatsApp (nuevo ID)
+          const formData = new FormData();
+          formData.append('file', imageBuffer, {
+            filename: 'comprobante.jpg',
+            contentType: mimeType || 'image/jpeg'
+          });
+          formData.append('messaging_product', 'whatsapp');
+          
+          const uploadResponse = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/media`, {
+            method: "POST",
+            headers: {
+              'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+              ...formData.getHeaders()
+            },
+            body: formData
+          });
+          
+          if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            throw new Error(`Error al subir imagen: ${uploadResponse.status} - ${errorText}`);
+          }
+          
+          const uploadData = await uploadResponse.json();
+          const newImageId = uploadData.id;
+          console.log(`✅ Imagen subida con nuevo ID: ${newImageId}`);
+          
+          // 4. Enviar con el nuevo ID
+          await sendMessage(sucursal.telefono, {
+            type: "image",
+            image: { 
+              id: newImageId,
+              caption: caption
+            }
+          });
+          
+          console.log(`✅ Imagen enviada a sucursal usando método alternativo`);
+        } catch (altError) {
+          console.error(`❌ Error en método alternativo:`, altError);
+          
+          // Si todo falla, enviar mensaje de error a la sucursal
+          await sendMessage(sucursal.telefono, textMsg(
+            `⚠️ *ERROR AL ENVIAR COMPROBANTE*\n\n` +
+            `Cliente: ${from}\n` +
+            `Monto: $${s.totalTemp}\n\n` +
+            `El comprobante no pudo ser enviado automáticamente.\n` +
+            `Por favor, contacta al cliente para obtener el comprobante manualmente.`
+          ));
+        }
       }
       
       // Enviar botones de verificación a la sucursal
@@ -517,7 +590,6 @@ app.post("/webhook", async (req, res) => {
         }
       });
       
-      // Actualizar estado de la sesión
       s.comprobanteEnviado = true;
       s.step = "esperando_confirmacion";
       
@@ -535,7 +607,6 @@ app.post("/webhook", async (req, res) => {
       
       if (replyId.startsWith("bloquear_")) {
         const numeroABloquear = replyId.replace("bloquear_", "");
-        
         blockedNumbers.add(numeroABloquear);
         guardarBloqueados();
         
@@ -566,13 +637,11 @@ app.post("/webhook", async (req, res) => {
       
       if (replyId.startsWith("desbloquear_")) {
         const numeroADesbloquear = replyId.replace("desbloquear_", "");
-        
         if (blockedNumbers.has(numeroADesbloquear)) {
           blockedNumbers.delete(numeroADesbloquear);
           guardarBloqueados();
           await sendMessage(fromSucursal, textMsg(`✅ *CLIENTE DESBLOQUEADO*\n\nNúmero: ${numeroADesbloquear}`));
         }
-        
         return res.sendStatus(200);
       }
       
@@ -596,7 +665,6 @@ app.post("/webhook", async (req, res) => {
         
         const s = sessions[cliente];
         
-        // Verificar que el ID del pago coincida
         if (s.pagoId !== pagoIdCompleto) {
           console.log(`⚠️ ID de pago no coincide. Esperado: ${s.pagoId}, Recibido: ${pagoIdCompleto}`);
           await sendMessage(fromSucursal, textMsg(
@@ -641,6 +709,10 @@ app.post("/webhook", async (req, res) => {
           "🛑 *Los botones de este pago ya no son válidos.*"
         ));
         
+        // Marcar como completado para evitar alertas de inactividad
+        s.step = "completado";
+        s.lastAction = now();
+        
         return res.sendStatus(200);
       }
       
@@ -652,7 +724,6 @@ app.post("/webhook", async (req, res) => {
         const random = partes[5];
         
         const pagoIdCompleto = `${cliente}_${sucursalKey}_${timestamp}_${random}`;
-        
         const sucursal = SUCURSALES[sucursalKey];
         
         if (!sucursal || !sessions[cliente]) {
@@ -697,13 +768,15 @@ app.post("/webhook", async (req, res) => {
           "🛑 *Los botones de este pago ya no son válidos.*"
         ));
         
+        // Marcar como completado (aunque sea rechazado, el proceso terminó)
+        s.step = "completado";
+        s.lastAction = now();
+        
         return res.sendStatus(200);
       }
       
-      // 🔥 ACEPTAR PEDIDO (EFECTIVO O RECOGER)
       if (replyId.startsWith("aceptar_")) {
         const pedidoId = replyId.replace("aceptar_", "");
-        
         for (const [cliente, s] of Object.entries(sessions)) {
           if (s.pedidoId === pedidoId) {
             await sendMessage(cliente, textMsg(
@@ -713,20 +786,21 @@ app.post("/webhook", async (req, res) => {
               "⏱️ Tiempo estimado: 30-40 minutos\n\n" +
               "¡Gracias por tu preferencia! 🙌"
             ));
+            await sendMessage(fromSucursal, textMsg(`✅ *PEDIDO ACEPTADO*\n\nCliente: ${cliente}`));
             
-            await sendMessage(fromSucursal, textMsg(
-              `✅ *PEDIDO ACEPTADO*\n\nCliente: ${cliente}`
-            ));
+            // Si es pago en efectivo, marcar como completado
+            if (s.pagoMetodo === "Efectivo") {
+              s.step = "completado";
+              s.lastAction = now();
+            }
             break;
           }
         }
         return res.sendStatus(200);
       }
       
-      // 🔥 RECHAZAR PEDIDO (EFECTIVO O RECOGER)
       if (replyId.startsWith("rechazar_")) {
         const pedidoId = replyId.replace("rechazar_", "");
-        
         for (const [cliente, s] of Object.entries(sessions)) {
           if (s.pedidoId === pedidoId) {
             await sendMessage(cliente, textMsg(
@@ -736,10 +810,11 @@ app.post("/webhook", async (req, res) => {
               "Por favor, contacta a la sucursal para más información.\n\n" +
               `📞 Teléfono: ${SUCURSALES[s.sucursal].telefono}`
             ));
+            await sendMessage(fromSucursal, textMsg(`❌ *PEDIDO RECHAZADO*\n\nCliente: ${cliente}`));
             
-            await sendMessage(fromSucursal, textMsg(
-              `❌ *PEDIDO RECHAZADO*\n\nCliente: ${cliente}`
-            ));
+            // Marcar como completado (aunque sea rechazado, el proceso terminó)
+            s.step = "completado";
+            s.lastAction = now();
             break;
           }
         }
@@ -969,7 +1044,6 @@ app.post("/webhook", async (req, res) => {
             break;
           }
         }
-        
         s.step = "ask_address";
         reply = textMsg("📍 *DIRECCIÓN*\n\nEscribe tu dirección completa:");
         break;
@@ -1002,14 +1076,12 @@ app.post("/webhook", async (req, res) => {
         s.pickupName = rawText;
         
         registrarPedido(from);
-        
         s.pedidoId = `${from}_${Date.now()}`;
         
         const sucursalDestino = SUCURSALES[s.sucursal];
         const resumenPreliminar = buildPreliminarSummary(s);
         
         await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-        
         await sendMessage(sucursalDestino.telefono, {
           type: "interactive",
           interactive: {
@@ -1056,7 +1128,6 @@ app.post("/webhook", async (req, res) => {
             const resumenPreliminar = buildPreliminarSummary(s);
             
             await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-            
             await sendMessage(sucursalDestino.telefono, {
               type: "interactive",
               interactive: {
@@ -1101,6 +1172,10 @@ app.post("/webhook", async (req, res) => {
         
       case "esperando_confirmacion_sucursal":
         reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nTe avisaremos cuando sea aceptado. 🍕");
+        break;
+        
+      case "completado":
+        reply = textMsg("✅ *PEDIDO COMPLETADO*\n\nGracias por tu compra. ¿Quieres hacer otro pedido? Escribe *Hola* para comenzar de nuevo. 🍕");
         break;
     }
 
@@ -1436,7 +1511,15 @@ const buildNegocioSummary = (s) => {
     }
   }
   
-  text += `\n🕒 ${new Date().toLocaleString('es-MX')}\n`;
+  // CORREGIDO: Formato de hora con AM/PM correcto
+  text += `\n🕒 ${new Date().toLocaleString('es-MX', { 
+    hour12: true, 
+    hour: '2-digit', 
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  })}\n`;
   text += `━━━━━━━━━━━━━━━━━━\n`;
   text += `✨ Prepáralo con amor`;
   
@@ -1497,7 +1580,8 @@ async function sendMessage(to, payload) {
   try {
     const msgs = Array.isArray(payload) ? payload : [payload];
     for (const m of msgs) {
-      await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
+      console.log(`📤 Enviando a ${to}:`, JSON.stringify(m).substring(0, 200));
+      const response = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${WHATSAPP_TOKEN}`,
@@ -1510,6 +1594,11 @@ async function sendMessage(to, payload) {
           ...m
         })
       });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Error en respuesta de WhatsApp: ${response.status} - ${errorText}`);
+      }
     }
   } catch (error) {
     console.error("❌ Error sendMessage:", error);
@@ -1522,7 +1611,10 @@ async function sendMessage(to, payload) {
 setInterval(() => {
   const nowTime = now();
   Object.keys(sessions).forEach(key => {
-    if (nowTime - sessions[key].lastAction > SESSION_TIMEOUT) {
+    const s = sessions[key];
+    
+    // Solo eliminar si no está en estado final Y ha expirado
+    if (!ESTADOS_FINALES.includes(s.step) && nowTime - s.lastAction > SESSION_TIMEOUT) {
       delete sessions[key];
       console.log(`🧹 Sesión expirada: ${key}`);
     }
@@ -1534,14 +1626,15 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V17 (Comprobantes Corregidos) corriendo en puerto ${PORT}`);
-  console.log(`📱 Revolución: ${SUCURSALES.revolucion.telefono}`);
-  console.log(`📱 La Obrera: ${SUCURSALES.obrera.telefono}`);
+  console.log(`🚀 Bot V18 (Comprobantes con Descarga) corriendo en puerto ${PORT}`);
+  console.log(`📱 Número de cliente (pruebas): 5216391946965`);
+  console.log(`📱 Número de sucursal REVOLUCIÓN: 5216391283842`);
+  console.log(`📱 Número de sucursal OBRERA: 5216393992508`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
-  console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos`);
-  console.log(`📊 Límite diario: ${MAX_PEDIDOS_POR_DIA} pedidos por día`);
+  console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos (sin límite diario)`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
+  console.log(`🛑 Estados finales sin alertas: ${ESTADOS_FINALES.join(", ")}`);
 });
