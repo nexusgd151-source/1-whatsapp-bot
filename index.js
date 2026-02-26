@@ -66,8 +66,7 @@ const SUCURSALES = {
 const SESSION_TIMEOUT = 10 * 60 * 1000;
 const WARNING_TIME = 5 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
-const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000;
-const MAX_PEDIDOS_POR_DIA = 5;
+const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000; // 5 minutos entre pedidos (sin límite diario)
 
 // Estados finales donde NO se deben enviar alertas de inactividad
 const ESTADOS_FINALES = ["esperando_confirmacion", "esperando_confirmacion_sucursal", "completado"];
@@ -158,14 +157,10 @@ const resetSession = (from) => {
     pagoProcesado: false,
     pagosProcesados: {},
     resumenEnviado: false,
-    ultimoPedido: 0,
-    pedidosHoy: 0,
-    fechaUltimoPedido: null,
-    pagoResultado: null,
-    pagoProcesadoPor: null,
-    pagoProcesadoEn: null,
+    ultimoPedido: 0, // Solo para control de 5 minutos
     warningSent: false,
-    pedidoId: null
+    pedidoId: null,
+    pagoId: null
   };
 };
 
@@ -238,7 +233,7 @@ setInterval(async () => {
 }, 60000);
 
 // =======================
-// ⏱️ FUNCIONES DE CONTROL DE TIEMPO ENTRE PEDIDOS
+// ⏱️ FUNCIÓN DE CONTROL DE TIEMPO ENTRE PEDIDOS (SOLO 5 MINUTOS, SIN LÍMITE DIARIO)
 // =======================
 function puedeHacerPedido(from) {
   const ahora = Date.now();
@@ -246,27 +241,23 @@ function puedeHacerPedido(from) {
   
   if (!s) return { permitido: true };
   
+  // Solo verificar tiempo entre pedidos (5 minutos)
   if (s.ultimoPedido > 0 && (ahora - s.ultimoPedido) < TIEMPO_MINIMO_ENTRE_PEDIDOS) {
     const minutosRestantes = Math.ceil((TIEMPO_MINIMO_ENTRE_PEDIDOS - (ahora - s.ultimoPedido)) / 60000);
+    const segundosRestantes = Math.ceil((TIEMPO_MINIMO_ENTRE_PEDIDOS - (ahora - s.ultimoPedido)) / 1000);
+    
+    let tiempoTexto = "";
+    if (minutosRestantes > 0) {
+      tiempoTexto = `${minutosRestantes} minutos`;
+    } else {
+      tiempoTexto = `${segundosRestantes} segundos`;
+    }
+    
     return {
       permitido: false,
       razon: "TIEMPO",
       minutos: minutosRestantes,
-      mensaje: `⚠️ *DEBES ESPERAR ${minutosRestantes} MINUTOS* ⚠️\n\nPara evitar spam, solo puedes hacer un pedido cada 5 minutos.\n\nIntenta de nuevo en ${minutosRestantes} minutos. ⏳`
-    };
-  }
-  
-  const hoy = new Date().toDateString();
-  if (s.fechaUltimoPedido !== hoy) {
-    s.pedidosHoy = 0;
-    s.fechaUltimoPedido = hoy;
-  }
-  
-  if (s.pedidosHoy >= MAX_PEDIDOS_POR_DIA) {
-    return {
-      permitido: false,
-      razon: "LIMITE_DIARIO",
-      mensaje: `⚠️ *LÍMITE DIARIO ALCANZADO* ⚠️\n\nHoy ya realizaste ${MAX_PEDIDOS_POR_DIA} pedidos.\n\nVuelve mañana para hacer otro pedido. 🍕`
+      mensaje: `⏳ *DEBES ESPERAR ${tiempoTexto}* ⏳\n\nPara evitar spam, solo puedes hacer un pedido cada 5 minutos.\n\nIntenta de nuevo en ${tiempoTexto}.`
     };
   }
   
@@ -276,14 +267,7 @@ function puedeHacerPedido(from) {
 function registrarPedido(from) {
   const s = sessions[from];
   if (!s) return;
-  s.ultimoPedido = Date.now();
-  const hoy = new Date().toDateString();
-  if (s.fechaUltimoPedido !== hoy) {
-    s.pedidosHoy = 1;
-    s.fechaUltimoPedido = hoy;
-  } else {
-    s.pedidosHoy++;
-  }
+  s.ultimoPedido = Date.now(); // Solo guardamos la fecha del último pedido
 }
 
 // =======================
@@ -377,7 +361,7 @@ app.post("/webhook", async (req, res) => {
       }
     }
 
-    // 🔥 DETECTAR IMAGEN (COMPROBANTE) - VERSIÓN CORREGIDA
+    // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image" || msg.type === "document") {
       console.log("🔥🔥🔥 IMAGEN DETECTADA 🔥🔥🔥");
       console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
@@ -471,10 +455,12 @@ app.post("/webhook", async (req, res) => {
       const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
       s.pagoId = pagoId;
       
+      // CORREGIDO: Formato de hora con AM/PM correcto
       const horaActual = new Date().toLocaleString('es-MX', { 
         hour: '2-digit', 
         minute: '2-digit',
-        hour12: true 
+        hour12: true,
+        hourCycle: 'h12'
       });
       
       const caption = 
@@ -487,7 +473,7 @@ app.post("/webhook", async (req, res) => {
         `⏰ *Hora:* ${horaActual}`;
       
       // =======================
-      // 🔥 ENVÍO CORREGIDO - REENVÍO DIRECTO DE LA IMAGEN
+      // 🔥 ENVÍO DE LA IMAGEN
       // =======================
       try {
         console.log(`📤 Reenviando imagen directamente a la sucursal...`);
@@ -1525,7 +1511,15 @@ const buildNegocioSummary = (s) => {
     }
   }
   
-  text += `\n🕒 ${new Date().toLocaleString('es-MX')}\n`;
+  // CORREGIDO: Formato de hora con AM/PM correcto
+  text += `\n🕒 ${new Date().toLocaleString('es-MX', { 
+    hour12: true, 
+    hour: '2-digit', 
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  })}\n`;
   text += `━━━━━━━━━━━━━━━━━━\n`;
   text += `✨ Prepáralo con amor`;
   
@@ -1636,8 +1630,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📱 Número de cliente (pruebas): 5216391946965`);
   console.log(`📱 Número de sucursal (pruebas): 5216391759607`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
-  console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos`);
-  console.log(`📊 Límite diario: ${MAX_PEDIDOS_POR_DIA} pedidos por día`);
+  console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos (sin límite diario)`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
