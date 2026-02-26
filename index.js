@@ -31,7 +31,7 @@ function guardarBloqueados() {
 }
 
 // =======================
-// 🏪 CONFIGURACIÓN DE SUCURSALES (con nombres corregidos)
+// 🏪 CONFIGURACIÓN DE SUCURSALES (sin "Obrera")
 // =======================
 const SUCURSALES = {
   revolucion: {
@@ -47,7 +47,7 @@ const SUCURSALES = {
     }
   },
   obrera: {
-    nombre: "PIZZERIA DE VILLA LA OBRERA (Fraccionamiento La Labor)",
+    nombre: "PIZZERIA DE VILLA LA LABOR", // 👈 SOLO "La Labor"
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216393992508",
@@ -287,7 +287,7 @@ app.get("/test-business", async (req, res) => {
     });
     await sendMessage(SUCURSALES.obrera.telefono, { 
       type: "text", 
-      text: { body: "🧪 *PRUEBA OBRERA*\n\nBot funcionando correctamente." } 
+      text: { body: "🧪 *PRUEBA LA LABOR*\n\nBot funcionando correctamente." } 
     });
     res.send("✅ Mensajes enviados a ambas sucursales");
   } catch (error) {
@@ -1160,7 +1160,7 @@ const seleccionarSucursal = () => {
     "🏪 *PIZZERÍAS VILLA*\n\n¿En qué sucursal quieres pedir?",
     [
       { id: "revolucion", title: "🌋 Revolución" },
-      { id: "obrera", title: "🏭 La Obrera (La Labor)" },
+      { id: "obrera", title: "🏭 La Labor" }, // 👈 SOLO "La Labor"
       { id: "cancelar", title: "❌ Cancelar" }
     ]
   );
@@ -1592,7 +1592,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Bot V18 (Comprobantes con Descarga) corriendo en puerto ${PORT}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965`);
   console.log(`📱 Número de sucursal REVOLUCIÓN: 5216391283842`);
-  console.log(`📱 Número de sucursal OBRERA: 5216393992508`);
+  console.log(`📱 Número de sucursal LA LABOR: 5216393992508`); // 👈 Cambiado
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Sin límite de tiempo entre pedidos`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
