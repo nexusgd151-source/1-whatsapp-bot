@@ -44,7 +44,7 @@ const OFERTA_ESPECIAL = {
   
   mensaje_bienvenida: "🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande - $100\n   ✨ Válido solo este fin de semana",
   
-  mensaje_confirmacion: "🎁 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n\n🔥 *Pepperoni Grande - $100*\n\n✅ INCLUYE:\n   • Pizza pepperoni tamaño GRANDE\n   • Precio base: $100\n\n✨ Personaliza con EXTRAS (+$15 c/u):\n   🍖 Pepperoni • 🥓 Jamón • 🌶️ Jalapeño\n   🍍 Piña • 🌭 Chorizo • 🧀 Queso\n\n⚠️ *Válido solo este fin de semana*\n   Viernes, Sábado y Domingo\n   (No te lo pierdas)",
+  mensaje_confirmacion: "🎁 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n\n🔥 *Pepperoni Grande - $100*\n\n✅ INCLUYE:\n   • Pizza pepperoni tamaño GRANDE\n   • Precio base: $100\n\n✨ Personaliza con EXTRAS (+$15 c/u):\n   🍖 Pepperoni • 🥓 Jamón • 🌶️ Jalapeño\n   🍍 Piña • 🌭 Chorizo • 🌭 Salchicha Italiana\n   🌭 Salchicha Asar • 🧀 Queso • 🥓 Tocino\n   🧅 Cebolla\n\n⚠️ *Válido solo este fin de semana*\n   Viernes, Sábado y Domingo\n   (No te lo pierdas)",
   
   mensaje_aviso: "⚠️ *¡TE ESTÁS PERDIENDO UNA OFERTA!*\n\n🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande por solo $100\n   (En lugar de $130)\n\n✨ Válido solo este fin de semana\n   Viernes, Sábado y Domingo"
 };
@@ -143,13 +143,20 @@ const PRICES = {
   }
 };
 
+// =======================
+// 🍕 EXTRAS COMPLETOS (ACTUALIZADO)
+// =======================
 const EXTRAS = {
   pepperoni: { nombre: "Pepperoni", emoji: "🍖" },
   jamon: { nombre: "Jamón", emoji: "🥓" },
   jalapeno: { nombre: "Jalapeño", emoji: "🌶️" },
   pina: { nombre: "Piña", emoji: "🍍" },
   chorizo: { nombre: "Chorizo", emoji: "🌭" },
-  queso: { nombre: "Queso", emoji: "🧀" }
+  salchicha_italiana: { nombre: "Salchicha Italiana", emoji: "🌭" },
+  salchicha_asar: { nombre: "Salchicha para Asar", emoji: "🌭" },
+  queso: { nombre: "Queso", emoji: "🧀" },
+  tocino: { nombre: "Tocino", emoji: "🥓" },
+  cebolla: { nombre: "Cebolla", emoji: "🧅" }
 };
 
 const sessions = {};
@@ -986,7 +993,7 @@ app.post("/webhook", async (req, res) => {
       case "ask_extra":
         if (input === "extra_si") {
           s.step = "choose_extra";
-          reply = extraList();
+          reply = extraList(); // 👈 AQUÍ SE USA extraList
         } else if (input === "extra_no") {
           s.pizzas.push({ ...s.currentPizza });
           s.currentPizza = { extras: [], crust: false };
@@ -997,6 +1004,7 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
+      // 👇 ESTA ES LA FUNCIÓN QUE FALTABA - EXTRA LIST
       case "choose_extra":
         if (!Object.keys(EXTRAS).includes(input)) {
           reply = merge(textMsg("❌ Extra no válido"), extraList());
@@ -1269,7 +1277,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI
+// 🎨 FUNCIONES UI (TODAS LAS FUNCIONES VISUALES)
 // =======================
 
 const seleccionarSucursal = () => {
@@ -1283,9 +1291,6 @@ const seleccionarSucursal = () => {
   );
 };
 
-// =======================
-// 🎯 FUNCIÓN WELCOME CORREGIDA (3 BOTONES MÁXIMO)
-// =======================
 const welcomeMessage = (s) => {
   const suc = SUCURSALES[s.sucursal];
   const opciones = [];
@@ -1298,17 +1303,13 @@ const welcomeMessage = (s) => {
   
   mensaje += "¿Qué deseas hacer?";
   
-  // MÁXIMO 3 BOTONES - Priorizamos los más importantes
   if (ofertaActiva()) {
-    // Con oferta: mostramos los 3 botones principales
     opciones.push(
       { id: "ver_oferta", title: "🎁 VER OFERTA" },
       { id: "pedido", title: "🛒 Hacer pedido" },
       { id: "menu", title: "📖 Ver menú" }
     );
-    // El botón de cancelar no cabe, pero el usuario puede escribir "cancelar"
   } else {
-    // Sin oferta: podemos mostrar los 3 botones
     opciones.push(
       { id: "pedido", title: "🛒 Hacer pedido" },
       { id: "menu", title: "📖 Ver menú" },
@@ -1387,14 +1388,26 @@ const askExtra = () => {
   );
 };
 
+// =======================
+// 🎯 EXTRA LIST - FUNCIÓN CORREGIDA CON TODOS LOS EXTRAS
+// =======================
 const extraList = () => {
+  // Ordenamos los extras para que se vean bien
+  const extrasOrdenados = [
+    "pepperoni", "jamon", "jalapeno", "pina", 
+    "chorizo", "salchicha_italiana", "salchicha_asar", 
+    "queso", "tocino", "cebolla"
+  ];
+  
+  const rows = extrasOrdenados.map(id => ({
+    id: id,
+    title: `${EXTRAS[id].emoji} ${EXTRAS[id].nombre}`,
+    description: "+$15"
+  }));
+  
   return list("➕ *ELIGE UN EXTRA* ($15 c/u)", [{
     title: "EXTRAS",
-    rows: Object.entries(EXTRAS).map(([id, extra]) => ({
-      id: id,
-      title: `${extra.emoji} ${extra.nombre}`,
-      description: "+$15"
-    }))
+    rows: rows
   }]);
 };
 
