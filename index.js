@@ -31,11 +31,11 @@ function guardarBloqueados() {
 }
 
 // =======================
-// 🏪 CONFIGURACIÓN DE SUCURSALES
+// 🏪 CONFIGURACIÓN DE SUCURSALES (sin "Obrera")
 // =======================
 const SUCURSALES = {
   revolucion: {
-    nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
+    nombre: "PIZZERIA DE VILLA REVOLUCIÓN (Colonia Revolución)",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216391283842",
@@ -47,7 +47,7 @@ const SUCURSALES = {
     }
   },
   obrera: {
-    nombre: "PIZZERIA DE VILLA LA OBRERA",
+    nombre: "PIZZERIA DE VILLA LA LABOR", // 👈 SOLO "La Labor"
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216393992508",
@@ -92,7 +92,16 @@ function ofertaActiva() {
 const SESSION_TIMEOUT = 10 * 60 * 1000;
 const WARNING_TIME = 5 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
+<<<<<<< HEAD
 const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000;
+=======
+
+// Tiempos de preparación personalizados
+const TIEMPO_PREPARACION = {
+  recoger: "15-30 minutos",     // Para llevar
+  domicilio: "30-60 minutos"    // A domicilio
+};
+>>>>>>> 17d041ed7ce22ea27b75485932a5a4b9f3e32679
 
 // Estados finales donde NO se deben enviar alertas de inactividad
 const ESTADOS_FINALES = ["esperando_confirmacion", "esperando_confirmacion_sucursal", "completado"];
@@ -189,7 +198,10 @@ const resetSession = (from) => {
     pagoProcesado: false,
     pagosProcesados: {},
     resumenEnviado: false,
+<<<<<<< HEAD
     ultimoPedido: 0,
+=======
+>>>>>>> 17d041ed7ce22ea27b75485932a5a4b9f3e32679
     warningSent: false,
     pedidoId: null,
     pagoId: null,
@@ -265,6 +277,7 @@ setInterval(async () => {
 }, 60000);
 
 // =======================
+<<<<<<< HEAD
 // ⏱️ FUNCIÓN DE CONTROL DE TIEMPO ENTRE PEDIDOS
 // =======================
 function puedeHacerPedido(from) {
@@ -302,6 +315,8 @@ function registrarPedido(from) {
 }
 
 // =======================
+=======
+>>>>>>> 17d041ed7ce22ea27b75485932a5a4b9f3e32679
 // WEBHOOK - GET
 // =======================
 app.get("/webhook", (req, res) => {
@@ -352,7 +367,7 @@ app.get("/test-business", async (req, res) => {
     });
     await sendMessage(SUCURSALES.obrera.telefono, { 
       type: "text", 
-      text: { body: "🧪 *PRUEBA OBRERA*\n\nBot funcionando correctamente." } 
+      text: { body: "🧪 *PRUEBA LA LABOR*\n\nBot funcionando correctamente." } 
     });
     res.send("✅ Mensajes enviados a ambas sucursales");
   } catch (error) {
@@ -509,6 +524,10 @@ app.post("/webhook", async (req, res) => {
       const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
       s.pagoId = pagoId;
       
+<<<<<<< HEAD
+=======
+      // Formato de hora con AM/PM correcto
+>>>>>>> 17d041ed7ce22ea27b75485932a5a4b9f3e32679
       const horaActual = new Date().toLocaleString('es-MX', { 
         hour: '2-digit', 
         minute: '2-digit',
@@ -735,11 +754,14 @@ app.post("/webhook", async (req, res) => {
           s.resumenEnviado = true;
         }
         
+        // Determinar el tiempo de preparación según el tipo de entrega
+        const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
+        
         await sendMessage(cliente, textMsg(
           "✅ *¡PAGO CONFIRMADO!*\n\n" +
           `🏪 *${sucursal.nombre}*\n\n` +
           "Tu pedido ya está en preparación.\n" +
-          "⏱️ Tiempo estimado: 30-40 min\n\n" +
+          `⏱️ Tiempo estimado: ${tiempoPrep}\n\n` +
           "¡Gracias por tu preferencia! 🙌"
         ));
         
@@ -819,11 +841,14 @@ app.post("/webhook", async (req, res) => {
         const pedidoId = replyId.replace("aceptar_", "");
         for (const [cliente, s] of Object.entries(sessions)) {
           if (s.pedidoId === pedidoId) {
+            // Determinar el tiempo de preparación según el tipo de entrega
+            const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
+            
             await sendMessage(cliente, textMsg(
               "✅ *¡PEDIDO ACEPTADO!*\n\n" +
               `🏪 *${SUCURSALES[s.sucursal].nombre}*\n\n` +
               "Tu pedido ha sido aceptado y ya está en preparación.\n" +
-              "⏱️ Tiempo estimado: 30-40 minutos\n\n" +
+              `⏱️ Tiempo estimado: ${tiempoPrep}\n\n` +
               "¡Gracias por tu preferencia! 🙌"
             ));
             await sendMessage(fromSucursal, textMsg(`✅ *PEDIDO ACEPTADO*\n\nCliente: ${cliente}`));
@@ -925,12 +950,6 @@ app.post("/webhook", async (req, res) => {
 
       case "welcome":
         if (input === "pedido") {
-          const check = puedeHacerPedido(from);
-          if (!check.permitido) {
-            await sendMessage(from, textMsg(check.mensaje));
-            reply = welcomeMessage(s);
-            break;
-          }
           s.step = "pizza_type";
           reply = pizzaList();
         } else if (input === "ver_oferta" && ofertaActiva()) {
@@ -1202,7 +1221,6 @@ app.post("/webhook", async (req, res) => {
         }
         s.pickupName = rawText;
         
-        registrarPedido(from);
         s.pedidoId = `${from}_${Date.now()}`;
         
         const sucursalDestino = SUCURSALES[s.sucursal];
@@ -1237,8 +1255,6 @@ app.post("/webhook", async (req, res) => {
 
       case "confirmacion_final":
         if (input === "confirmar") {
-          registrarPedido(from);
-          
           if (s.pagoMetodo === "Transferencia") {
             s.step = "ask_comprobante";
             reply = textMsg(
@@ -1324,7 +1340,7 @@ const seleccionarSucursal = () => {
     "🏪 *PIZZERÍAS VILLA*\n\n¿En qué sucursal quieres pedir?",
     [
       { id: "revolucion", title: "🌋 Revolución" },
-      { id: "obrera", title: "🏭 La Obrera" },
+      { id: "obrera", title: "🏭 La Labor" }, // 👈 SOLO "La Labor"
       { id: "cancelar", title: "❌ Cancelar" }
     ]
   );
@@ -1707,6 +1723,10 @@ const buildNegocioSummary = (s) => {
     }
   }
   
+<<<<<<< HEAD
+=======
+  // Formato de hora con AM/PM correcto
+>>>>>>> 17d041ed7ce22ea27b75485932a5a4b9f3e32679
   text += `\n🕒 ${new Date().toLocaleString('es-MX', { 
     hour12: true, 
     hour: '2-digit', 
@@ -1823,11 +1843,15 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Bot V18 (Comprobantes con Descarga) corriendo en puerto ${PORT}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965`);
   console.log(`📱 Número de sucursal REVOLUCIÓN: 5216391283842`);
-  console.log(`📱 Número de sucursal OBRERA: 5216393992508`);
+  console.log(`📱 Número de sucursal LA LABOR: 5216393992508`); // 👈 Cambiado
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
-  console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos (sin límite diario)`);
+  console.log(`⏱️ Sin límite de tiempo entre pedidos`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
+<<<<<<< HEAD
   console.log(`🎁 Oferta especial: ${ofertaActiva() ? "ACTIVA" : "INACTIVA"} (Vie-Sáb-Dom)`);
+=======
+  console.log(`⏱️ Tiempo preparación: Recoger ${TIEMPO_PREPARACION.recoger} | Domicilio ${TIEMPO_PREPARACION.domicilio}`);
+>>>>>>> 17d041ed7ce22ea27b75485932a5a4b9f3e32679
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
