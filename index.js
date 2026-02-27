@@ -56,6 +56,11 @@ function ofertaActiva() {
 }
 
 // =======================
+// ⏰ CONFIGURACIÓN DE TIEMPO PARA ACEPTACIÓN DE PEDIDOS
+// =======================
+const TIEMPO_MAXIMO_ACEPTACION = 30 * 60 * 1000; // 30 minutos en milisegundos
+
+// =======================
 // 🏪 CONFIGURACIÓN DE SUCURSALES
 // =======================
 const SUCURSALES = {
@@ -144,7 +149,7 @@ const PRICES = {
 };
 
 // =======================
-// 🍕 EXTRAS COMPLETOS (ACTUALIZADO)
+// 🍕 EXTRAS COMPLETOS
 // =======================
 const EXTRAS = {
   pepperoni: { nombre: "Pepperoni", emoji: "🍖" },
@@ -198,7 +203,8 @@ const resetSession = (from) => {
     pedidoId: null,
     pagoId: null,
     pizzaSeleccionada: null,
-    es_oferta: false
+    es_oferta: false,
+    pedidoEnviadoEn: null // 👈 NUEVO CAMPO PARA CONTROL DE EXPIRACIÓN
   };
 };
 
@@ -229,6 +235,47 @@ async function checkSessionWarning(from, s) {
   }
   
   return true;
+}
+
+// =======================
+// ⏰ FUNCIÓN PARA VERIFICAR PEDIDOS PENDIENTES DE ACEPTACIÓN
+// =======================
+async function verificarPedidosPendientes() {
+  const ahora = now();
+  
+  for (const [from, s] of Object.entries(sessions)) {
+    // Solo verificar pedidos que están esperando confirmación de la sucursal
+    if (s.step === "esperando_confirmacion_sucursal" && s.pedidoId) {
+      const tiempoEspera = ahora - (s.pedidoEnviadoEn || s.lastAction);
+      
+      // Si ha pasado más de 30 minutos desde que se envió el pedido
+      if (tiempoEspera > TIEMPO_MAXIMO_ACEPTACION) {
+        console.log(`⏰ Pedido ${s.pedidoId} expiró por falta de confirmación (${Math.floor(tiempoEspera / 60000)} minutos)`);
+        
+        // Notificar al cliente que su pedido expiró
+        await sendMessage(from, textMsg(
+          "⏰ *PEDIDO EXPIRADO*\n\n" +
+          `Han pasado más de 30 minutos y la sucursal no ha confirmado tu pedido.\n\n` +
+          `Por seguridad, el pedido ha sido cancelado automáticamente.\n\n` +
+          `Puedes intentar de nuevo escribiendo *Hola* para comenzar. 🍕`
+        )).catch(e => console.log("Error al notificar expiración"));
+        
+        // Notificar a la sucursal que el pedido expiró
+        const sucursal = SUCURSALES[s.sucursal];
+        if (sucursal) {
+          await sendMessage(sucursal.telefono, textMsg(
+            `⏰ *PEDIDO EXPIRADO POR TIEMPO*\n\n` +
+            `Cliente: ${from}\n` +
+            `Pedido: ${s.pedidoId}\n\n` +
+            `El pedido ha sido cancelado automáticamente después de 30 minutos sin confirmación.`
+          )).catch(e => console.log("Error al notificar a sucursal"));
+        }
+        
+        // Eliminar la sesión del cliente
+        delete sessions[from];
+      }
+    }
+  }
 }
 
 // =======================
@@ -267,6 +314,13 @@ setInterval(async () => {
     }
   }
 }, 60000);
+
+// =======================
+// ⏰ VERIFICACIÓN DE PEDIDOS PENDIENTES (cada minuto)
+// =======================
+setInterval(() => {
+  verificarPedidosPendientes();
+}, 60000); // Verificar cada minuto
 
 // =======================
 // WEBHOOK - GET
@@ -993,7 +1047,7 @@ app.post("/webhook", async (req, res) => {
       case "ask_extra":
         if (input === "extra_si") {
           s.step = "choose_extra";
-          reply = extraList(); // 👈 AQUÍ SE USA extraList
+          reply = extraList();
         } else if (input === "extra_no") {
           s.pizzas.push({ ...s.currentPizza });
           s.currentPizza = { extras: [], crust: false };
@@ -1004,7 +1058,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // 👇 ESTA ES LA FUNCIÓN QUE FALTABA - EXTRA LIST
       case "choose_extra":
         if (!Object.keys(EXTRAS).includes(input)) {
           reply = merge(textMsg("❌ Extra no válido"), extraList());
@@ -1159,6 +1212,7 @@ app.post("/webhook", async (req, res) => {
         reply = confirmacionFinal(s);
         break;
 
+      // 👇 CASO ASK_PICKUP_NAME MODIFICADO CON pedidoEnviadoEn
       case "ask_pickup_name":
         if (!rawText || rawText.length < 3) {
           reply = textMsg("⚠️ Nombre inválido. Intenta de nuevo:");
@@ -1167,6 +1221,7 @@ app.post("/webhook", async (req, res) => {
         s.pickupName = rawText;
         
         s.pedidoId = `${from}_${Date.now()}`;
+        s.pedidoEnviadoEn = now(); // 👈 Guardar cuándo se envió el pedido
         
         const sucursalDestino = SUCURSALES[s.sucursal];
         const resumenPreliminar = buildPreliminarSummary(s);
@@ -1191,13 +1246,16 @@ app.post("/webhook", async (req, res) => {
           "📋 *PEDIDO ENVIADO*\n\n" +
           "Tu pedido ha sido enviado a la sucursal.\n" +
           "Espera la confirmación para saber si fue aceptado.\n\n" +
-          "Te notificaremos en unos minutos. ⏳"
+          "⏱️ *La sucursal tiene 30 minutos para confirmar*\n" +
+          "Si no confirman en ese tiempo, el pedido se cancelará automáticamente.\n\n" +
+          "Te notificaremos cuando haya una respuesta. ⏳"
         ));
         
         s.step = "esperando_confirmacion_sucursal";
         reply = null;
         break;
 
+      // 👇 CASO CONFIRMACION_FINAL MODIFICADO (para efectivo)
       case "confirmacion_final":
         if (input === "confirmar") {
           if (s.pagoMetodo === "Transferencia") {
@@ -1212,6 +1270,8 @@ app.post("/webhook", async (req, res) => {
             );
           } else {
             s.pedidoId = `${from}_${Date.now()}`;
+            s.pedidoEnviadoEn = now(); // 👈 Guardar cuándo se envió el pedido
+            
             const sucursalDestino = SUCURSALES[s.sucursal];
             const resumenPreliminar = buildPreliminarSummary(s);
             
@@ -1235,6 +1295,8 @@ app.post("/webhook", async (req, res) => {
               "📋 *PEDIDO ENVIADO*\n\n" +
               "Tu pedido ha sido enviado a la sucursal.\n" +
               "Espera la confirmación para saber si fue aceptado.\n\n" +
+              "⏱️ *La sucursal tiene 30 minutos para confirmar*\n" +
+              "Si no confirman en ese tiempo, el pedido se cancelará automáticamente.\n\n" +
               "Te notificaremos en minutos. ⏳"
             ));
             
@@ -1259,7 +1321,7 @@ app.post("/webhook", async (req, res) => {
         break;
         
       case "esperando_confirmacion_sucursal":
-        reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nTe avisaremos cuando sea aceptado. 🍕");
+        reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nTe avisaremos cuando sea aceptado o si pasa más de 30 minutos se cancelará automáticamente. 🍕");
         break;
         
       case "completado":
@@ -1277,7 +1339,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI (TODAS LAS FUNCIONES VISUALES)
+// 🎨 FUNCIONES UI
 // =======================
 
 const seleccionarSucursal = () => {
@@ -1388,9 +1450,6 @@ const askExtra = () => {
   );
 };
 
-// =======================
-// 🎯 EXTRA LIST - FUNCIÓN CORREGIDA CON TODOS LOS EXTRAS
-// =======================
 const extraList = () => {
   // Ordenamos los extras para que se vean bien
   const extrasOrdenados = [
@@ -1805,6 +1864,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
   console.log(`⏱️ Tiempo preparación: Recoger ${TIEMPO_PREPARACION.recoger} | Domicilio ${TIEMPO_PREPARACION.domicilio}`);
   console.log(`🎁 Oferta especial: ${ofertaActiva() ? "ACTIVA" : "INACTIVA"} (Vie-Sáb-Dom)`);
+  console.log(`⏰ Tiempo máximo para aceptar pedidos: 30 minutos`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
