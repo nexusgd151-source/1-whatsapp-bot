@@ -31,11 +31,37 @@ function guardarBloqueados() {
 }
 
 // =======================
-// 🏪 CONFIGURACIÓN DE SUCURSALES
+// 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL (NUEVO)
+// =======================
+const OFERTA_ESPECIAL = {
+  activa: true,
+  nombre: "Pepperoni Grande $100",
+  pizza: "pepperoni",
+  tamaño: "grande",
+  precio_base: 100,
+  precio_normal: 130,
+  dias_validos: [5, 6, 0], // 5=viernes, 6=sábado, 0=domingo
+  
+  mensaje_bienvenida: "🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande - $100\n   ✨ Válido solo este fin de semana",
+  
+  mensaje_confirmacion: "🎁 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n\n🔥 *Pepperoni Grande - $100*\n\n✅ INCLUYE:\n   • Pizza pepperoni tamaño GRANDE\n   • Precio base: $100\n\n✨ Personaliza con EXTRAS (+$15 c/u):\n   🍖 Pepperoni • 🥓 Jamón • 🌶️ Jalapeño\n   🍍 Piña • 🌭 Chorizo • 🧀 Queso\n\n⚠️ *Válido solo este fin de semana*\n   Viernes, Sábado y Domingo\n   (No te lo pierdas)",
+  
+  mensaje_aviso: "⚠️ *¡TE ESTÁS PERDIENDO UNA OFERTA!*\n\n🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande por solo $100\n   (En lugar de $130)\n\n✨ Válido solo este fin de semana\n   Viernes, Sábado y Domingo"
+};
+
+// Función para verificar si la oferta está activa
+function ofertaActiva() {
+  if (!OFERTA_ESPECIAL.activa) return false;
+  const hoy = new Date().getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
+  return OFERTA_ESPECIAL.dias_validos.includes(hoy);
+}
+
+// =======================
+// 🏪 CONFIGURACIÓN DE SUCURSALES (sin "Obrera")
 // =======================
 const SUCURSALES = {
   revolucion: {
-    nombre: "PIZZERIA DE VILLA REVOLUCIÓN",
+    nombre: "PIZZERIA DE VILLA REVOLUCIÓN (Colonia Revolución)",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216391283842",
@@ -47,7 +73,7 @@ const SUCURSALES = {
     }
   },
   obrera: {
-    nombre: "PIZZERIA DE VILLA LA OBRERA",
+    nombre: "PIZZERIA DE VILLA LA LABOR",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216393992508",
@@ -61,38 +87,17 @@ const SUCURSALES = {
 };
 
 // =======================
-// 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL
-// =======================
-const OFERTA_ESPECIAL = {
-  activa: true,
-  nombre: "Pepperoni Grande $100",
-  pizza: "pepperoni",
-  tamaño: "grande",
-  precio_base: 100,
-  precio_normal: 130,
-  dias_validos: [5, 6, 0], // 5=viernes, 6=sábado, 0=domingo
-  
-  mensaje_bienvenida: "🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande - $100\n   ✨ Válido solo este fin de semana",
-  
-  mensaje_confirmacion: "🎁 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n\n🔥 *Pepperoni Grande - $100*\n\n✅ INCLUYE:\n   • Pizza pepperoni tamaño GRANDE\n   • Precio base: $100\n\n⚠️ *Válido solo este fin de semana*\n   Viernes, Sábado y Domingo\n   (No te lo pierdas)",
-  
-  mensaje_aviso: "⚠️ *¡TE ESTÁS PERDIENDO UNA OFERTA!*\n\n🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande por solo $100\n   (En lugar de $130)\n\n✨ Válido solo este fin de semana\n   Viernes, Sábado y Domingo"
-};
-
-// Función para verificar si la oferta está activa
-function ofertaActiva() {
-  if (!OFERTA_ESPECIAL.activa) return false;
-  const hoy = new Date().getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
-  return OFERTA_ESPECIAL.dias_validos.includes(hoy);
-}
-
-// =======================
 // ⏰ CONFIGURACIÓN DE SESIÓN (10 MINUTOS)
 // =======================
 const SESSION_TIMEOUT = 10 * 60 * 1000;
 const WARNING_TIME = 5 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
-const TIEMPO_MINIMO_ENTRE_PEDIDOS = 5 * 60 * 1000;
+
+// Tiempos de preparación personalizados
+const TIEMPO_PREPARACION = {
+  recoger: "15-30 minutos",     // Para llevar
+  domicilio: "30-60 minutos"    // A domicilio
+};
 
 // Estados finales donde NO se deben enviar alertas de inactividad
 const ESTADOS_FINALES = ["esperando_confirmacion", "esperando_confirmacion_sucursal", "completado"];
@@ -139,19 +144,13 @@ const PRICES = {
   }
 };
 
-// =======================
-// 🍕 EXTRAS AMPLIADOS CON NUEVAS OPCIONES
-// =======================
 const EXTRAS = {
   pepperoni: { nombre: "Pepperoni", emoji: "🍖" },
   jamon: { nombre: "Jamón", emoji: "🥓" },
   jalapeno: { nombre: "Jalapeño", emoji: "🌶️" },
   pina: { nombre: "Piña", emoji: "🍍" },
   chorizo: { nombre: "Chorizo", emoji: "🌭" },
-  queso: { nombre: "Queso", emoji: "🧀" },
-  salchicha_italiana: { nombre: "Salchicha Italiana", emoji: "🌭" },
-  carne_molida: { nombre: "Carne Molida", emoji: "🥩" },
-  salchicha_azar: { nombre: "Salchicha para Azar", emoji: "🌭" }
+  queso: { nombre: "Queso", emoji: "🧀" }
 };
 
 const sessions = {};
@@ -189,12 +188,12 @@ const resetSession = (from) => {
     pagoProcesado: false,
     pagosProcesados: {},
     resumenEnviado: false,
-    ultimoPedido: 0,
     warningSent: false,
     pedidoId: null,
     pagoId: null,
-    pizzaSeleccionada: null, // Para manejar ofertas
-    es_oferta: false // Para marcar pizzas de oferta
+    // Nuevos campos para oferta
+    pizzaSeleccionada: null,
+    es_oferta: false
   };
 };
 
@@ -265,43 +264,6 @@ setInterval(async () => {
 }, 60000);
 
 // =======================
-// ⏱️ FUNCIÓN DE CONTROL DE TIEMPO ENTRE PEDIDOS
-// =======================
-function puedeHacerPedido(from) {
-  const ahora = Date.now();
-  const s = sessions[from];
-  
-  if (!s) return { permitido: true };
-  
-  if (s.ultimoPedido > 0 && (ahora - s.ultimoPedido) < TIEMPO_MINIMO_ENTRE_PEDIDOS) {
-    const minutosRestantes = Math.ceil((TIEMPO_MINIMO_ENTRE_PEDIDOS - (ahora - s.ultimoPedido)) / 60000);
-    const segundosRestantes = Math.ceil((TIEMPO_MINIMO_ENTRE_PEDIDOS - (ahora - s.ultimoPedido)) / 1000);
-    
-    let tiempoTexto = "";
-    if (minutosRestantes > 0) {
-      tiempoTexto = `${minutosRestantes} minutos`;
-    } else {
-      tiempoTexto = `${segundosRestantes} segundos`;
-    }
-    
-    return {
-      permitido: false,
-      razon: "TIEMPO",
-      minutos: minutosRestantes,
-      mensaje: `⏳ *DEBES ESPERAR ${tiempoTexto}* ⏳\n\nPara evitar spam, solo puedes hacer un pedido cada 5 minutos.\n\nIntenta de nuevo en ${tiempoTexto}.`
-    };
-  }
-  
-  return { permitido: true };
-}
-
-function registrarPedido(from) {
-  const s = sessions[from];
-  if (!s) return;
-  s.ultimoPedido = Date.now();
-}
-
-// =======================
 // WEBHOOK - GET
 // =======================
 app.get("/webhook", (req, res) => {
@@ -352,7 +314,7 @@ app.get("/test-business", async (req, res) => {
     });
     await sendMessage(SUCURSALES.obrera.telefono, { 
       type: "text", 
-      text: { body: "🧪 *PRUEBA OBRERA*\n\nBot funcionando correctamente." } 
+      text: { body: "🧪 *PRUEBA LA LABOR*\n\nBot funcionando correctamente." } 
     });
     res.send("✅ Mensajes enviados a ambas sucursales");
   } catch (error) {
@@ -361,7 +323,7 @@ app.get("/test-business", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI DE OFERTA
+// 🎨 FUNCIONES UI DE OFERTA (NUEVAS)
 // =======================
 const avisoOferta = () => {
   return buttons(
@@ -385,7 +347,7 @@ const confirmarOferta = () => {
 };
 
 // =======================
-// WEBHOOK - POST
+// WEBHOOK - POST (MODIFICADO CON OFERTAS)
 // =======================
 app.post("/webhook", async (req, res) => {
   try {
@@ -735,11 +697,13 @@ app.post("/webhook", async (req, res) => {
           s.resumenEnviado = true;
         }
         
+        const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
+        
         await sendMessage(cliente, textMsg(
           "✅ *¡PAGO CONFIRMADO!*\n\n" +
           `🏪 *${sucursal.nombre}*\n\n` +
           "Tu pedido ya está en preparación.\n" +
-          "⏱️ Tiempo estimado: 30-40 min\n\n" +
+          `⏱️ Tiempo estimado: ${tiempoPrep}\n\n` +
           "¡Gracias por tu preferencia! 🙌"
         ));
         
@@ -819,11 +783,13 @@ app.post("/webhook", async (req, res) => {
         const pedidoId = replyId.replace("aceptar_", "");
         for (const [cliente, s] of Object.entries(sessions)) {
           if (s.pedidoId === pedidoId) {
+            const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
+            
             await sendMessage(cliente, textMsg(
               "✅ *¡PEDIDO ACEPTADO!*\n\n" +
               `🏪 *${SUCURSALES[s.sucursal].nombre}*\n\n` +
               "Tu pedido ha sido aceptado y ya está en preparación.\n" +
-              "⏱️ Tiempo estimado: 30-40 minutos\n\n" +
+              `⏱️ Tiempo estimado: ${tiempoPrep}\n\n` +
               "¡Gracias por tu preferencia! 🙌"
             ));
             await sendMessage(fromSucursal, textMsg(`✅ *PEDIDO ACEPTADO*\n\nCliente: ${cliente}`));
@@ -925,15 +891,9 @@ app.post("/webhook", async (req, res) => {
 
       case "welcome":
         if (input === "pedido") {
-          const check = puedeHacerPedido(from);
-          if (!check.permitido) {
-            await sendMessage(from, textMsg(check.mensaje));
-            reply = welcomeMessage(s);
-            break;
-          }
           s.step = "pizza_type";
           reply = pizzaList();
-        } else if (input === "ver_oferta" && ofertaActiva()) {
+        } else if (input === "ver_oferta" && ofertaActiva()) { // NUEVO
           s.step = "confirmar_oferta";
           reply = confirmarOferta();
         } else if (input === "menu") {
@@ -952,7 +912,7 @@ app.post("/webhook", async (req, res) => {
         // Guardar la pizza seleccionada
         s.pizzaSeleccionada = input;
         
-        // Si es pepperoni y hay oferta activa, mostrar aviso
+        // Si es pepperoni y hay oferta activa, mostrar aviso (NUEVO)
         if (input === "pepperoni" && ofertaActiva()) {
           s.step = "aviso_oferta";
           reply = avisoOferta();
@@ -966,6 +926,7 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
+      // NUEVOS CASOS PARA OFERTA
       case "aviso_oferta":
         if (input === "ver_oferta") {
           s.step = "confirmar_oferta";
@@ -1003,6 +964,7 @@ app.post("/webhook", async (req, res) => {
           reply = merge(textMsg("❌ Opción no válida"), confirmarOferta());
         }
         break;
+      // FIN NUEVOS CASOS
 
       case "size":
         if (!["grande", "extragrande"].includes(input)) {
@@ -1067,6 +1029,7 @@ app.post("/webhook", async (req, res) => {
 
       case "another_pizza":
         if (input === "si") {
+          // Modificado para preguntar qué tipo de pizza quiere (NUEVO)
           s.step = "elegir_tipo_pizza";
           const opciones = [
             { id: "normal", title: "🍕 Pizza normal" }
@@ -1092,6 +1055,7 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
+      // NUEVO CASO
       case "elegir_tipo_pizza":
         if (input === "otra_oferta" && ofertaActiva()) {
           s.currentPizza = {
@@ -1202,7 +1166,6 @@ app.post("/webhook", async (req, res) => {
         }
         s.pickupName = rawText;
         
-        registrarPedido(from);
         s.pedidoId = `${from}_${Date.now()}`;
         
         const sucursalDestino = SUCURSALES[s.sucursal];
@@ -1237,8 +1200,6 @@ app.post("/webhook", async (req, res) => {
 
       case "confirmacion_final":
         if (input === "confirmar") {
-          registrarPedido(from);
-          
           if (s.pagoMetodo === "Transferencia") {
             s.step = "ask_comprobante";
             reply = textMsg(
@@ -1324,7 +1285,7 @@ const seleccionarSucursal = () => {
     "🏪 *PIZZERÍAS VILLA*\n\n¿En qué sucursal quieres pedir?",
     [
       { id: "revolucion", title: "🌋 Revolución" },
-      { id: "obrera", title: "🏭 La Obrera" },
+      { id: "obrera", title: "🏭 La Labor" },
       { id: "cancelar", title: "❌ Cancelar" }
     ]
   );
@@ -1823,10 +1784,11 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Bot V18 (Comprobantes con Descarga) corriendo en puerto ${PORT}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965`);
   console.log(`📱 Número de sucursal REVOLUCIÓN: 5216391283842`);
-  console.log(`📱 Número de sucursal OBRERA: 5216393992508`);
+  console.log(`📱 Número de sucursal LA LABOR: 5216393992508`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
-  console.log(`⏱️ Tiempo mínimo entre pedidos: 5 minutos (sin límite diario)`);
+  console.log(`⏱️ Sin límite de tiempo entre pedidos`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
+  console.log(`⏱️ Tiempo preparación: Recoger ${TIEMPO_PREPARACION.recoger} | Domicilio ${TIEMPO_PREPARACION.domicilio}`);
   console.log(`🎁 Oferta especial: ${ofertaActiva() ? "ACTIVA" : "INACTIVA"} (Vie-Sáb-Dom)`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
