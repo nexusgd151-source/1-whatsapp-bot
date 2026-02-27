@@ -31,7 +31,7 @@ function guardarBloqueados() {
 }
 
 // =======================
-// 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL (NUEVO)
+// 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL
 // =======================
 const OFERTA_ESPECIAL = {
   activa: true,
@@ -49,7 +49,6 @@ const OFERTA_ESPECIAL = {
   mensaje_aviso: "⚠️ *¡TE ESTÁS PERDIENDO UNA OFERTA!*\n\n🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande por solo $100\n   (En lugar de $130)\n\n✨ Válido solo este fin de semana\n   Viernes, Sábado y Domingo"
 };
 
-// Función para verificar si la oferta está activa
 function ofertaActiva() {
   if (!OFERTA_ESPECIAL.activa) return false;
   const hoy = new Date().getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
@@ -57,7 +56,7 @@ function ofertaActiva() {
 }
 
 // =======================
-// 🏪 CONFIGURACIÓN DE SUCURSALES (sin "Obrera")
+// 🏪 CONFIGURACIÓN DE SUCURSALES
 // =======================
 const SUCURSALES = {
   revolucion: {
@@ -191,7 +190,6 @@ const resetSession = (from) => {
     warningSent: false,
     pedidoId: null,
     pagoId: null,
-    // Nuevos campos para oferta
     pizzaSeleccionada: null,
     es_oferta: false
   };
@@ -323,14 +321,14 @@ app.get("/test-business", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI DE OFERTA (NUEVAS)
+// 🎨 FUNCIONES UI DE OFERTA
 // =======================
 const avisoOferta = () => {
   return buttons(
     OFERTA_ESPECIAL.mensaje_aviso + "\n\n¿Qué deseas hacer?",
     [
-      { id: "ver_oferta", title: "🎁 VER OFERTA ESPECIAL" },
-      { id: "continuar_normal", title: "🛒 Continuar con pizza normal" },
+      { id: "ver_oferta", title: "🎁 VER OFERTA" },
+      { id: "continuar_normal", title: "🛒 Continuar normal" },
       { id: "volver_inicio", title: "🔄 Volver al inicio" }
     ]
   );
@@ -347,7 +345,7 @@ const confirmarOferta = () => {
 };
 
 // =======================
-// WEBHOOK - POST (MODIFICADO CON OFERTAS)
+// WEBHOOK - POST
 // =======================
 app.post("/webhook", async (req, res) => {
   try {
@@ -893,7 +891,7 @@ app.post("/webhook", async (req, res) => {
         if (input === "pedido") {
           s.step = "pizza_type";
           reply = pizzaList();
-        } else if (input === "ver_oferta" && ofertaActiva()) { // NUEVO
+        } else if (input === "ver_oferta" && ofertaActiva()) {
           s.step = "confirmar_oferta";
           reply = confirmarOferta();
         } else if (input === "menu") {
@@ -909,10 +907,8 @@ app.post("/webhook", async (req, res) => {
           break;
         }
         
-        // Guardar la pizza seleccionada
         s.pizzaSeleccionada = input;
         
-        // Si es pepperoni y hay oferta activa, mostrar aviso (NUEVO)
         if (input === "pepperoni" && ofertaActiva()) {
           s.step = "aviso_oferta";
           reply = avisoOferta();
@@ -926,7 +922,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // NUEVOS CASOS PARA OFERTA
       case "aviso_oferta":
         if (input === "ver_oferta") {
           s.step = "confirmar_oferta";
@@ -964,7 +959,6 @@ app.post("/webhook", async (req, res) => {
           reply = merge(textMsg("❌ Opción no válida"), confirmarOferta());
         }
         break;
-      // FIN NUEVOS CASOS
 
       case "size":
         if (!["grande", "extragrande"].includes(input)) {
@@ -1029,7 +1023,6 @@ app.post("/webhook", async (req, res) => {
 
       case "another_pizza":
         if (input === "si") {
-          // Modificado para preguntar qué tipo de pizza quiere (NUEVO)
           s.step = "elegir_tipo_pizza";
           const opciones = [
             { id: "normal", title: "🍕 Pizza normal" }
@@ -1055,7 +1048,6 @@ app.post("/webhook", async (req, res) => {
         }
         break;
 
-      // NUEVO CASO
       case "elegir_tipo_pizza":
         if (input === "otra_oferta" && ofertaActiva()) {
           s.currentPizza = {
@@ -1277,7 +1269,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI (ACTUALIZADAS)
+// 🎨 FUNCIONES UI
 // =======================
 
 const seleccionarSucursal = () => {
@@ -1291,20 +1283,12 @@ const seleccionarSucursal = () => {
   );
 };
 
+// =======================
+// 🎯 FUNCIÓN WELCOME CORREGIDA (3 BOTONES MÁXIMO)
+// =======================
 const welcomeMessage = (s) => {
   const suc = SUCURSALES[s.sucursal];
-  const opciones = [
-    { id: "pedido", title: "🛒 Hacer pedido" }
-  ];
-  
-  if (ofertaActiva()) {
-    opciones.unshift({ id: "ver_oferta", title: "🎁 VER OFERTA ESPECIAL" });
-  }
-  
-  opciones.push(
-    { id: "menu", title: "📖 Ver menú" },
-    { id: "cancelar", title: "❌ Cancelar" }
-  );
+  const opciones = [];
   
   let mensaje = `🏪 *${suc.nombre}*\n\n`;
   
@@ -1313,6 +1297,24 @@ const welcomeMessage = (s) => {
   }
   
   mensaje += "¿Qué deseas hacer?";
+  
+  // MÁXIMO 3 BOTONES - Priorizamos los más importantes
+  if (ofertaActiva()) {
+    // Con oferta: mostramos los 3 botones principales
+    opciones.push(
+      { id: "ver_oferta", title: "🎁 VER OFERTA" },
+      { id: "pedido", title: "🛒 Hacer pedido" },
+      { id: "menu", title: "📖 Ver menú" }
+    );
+    // El botón de cancelar no cabe, pero el usuario puede escribir "cancelar"
+  } else {
+    // Sin oferta: podemos mostrar los 3 botones
+    opciones.push(
+      { id: "pedido", title: "🛒 Hacer pedido" },
+      { id: "menu", title: "📖 Ver menú" },
+      { id: "cancelar", title: "❌ Cancelar" }
+    );
+  }
   
   return buttons(mensaje, opciones);
 };
