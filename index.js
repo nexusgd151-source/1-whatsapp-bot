@@ -3,6 +3,7 @@ const fetch = require("node-fetch");
 const fs = require('fs');
 const path = require('path');
 const FormData = require('form-data');
+const moment = require('moment-timezone'); // 👈 NUEVO: Para manejar hora de México
 
 const app = express();
 app.use(express.json());
@@ -126,7 +127,8 @@ const OFERTA_ESPECIAL = {
 
 function ofertaActiva() {
   if (!OFERTA_ESPECIAL.activa) return false;
-  const hoy = new Date().getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
+  const ahoraMexico = moment().tz("America/Mexico_City");
+  const hoy = ahoraMexico.day(); // 0=domingo, 1=lunes, ..., 6=sábado (hora México)
   return OFERTA_ESPECIAL.dias_validos.includes(hoy);
 }
 
@@ -299,7 +301,7 @@ const resetSession = (from) => {
     pizzaSeleccionada: null,
     es_oferta: false,
     pedidoEnviadoEn: null,
-    folio: null // 👈 CAMPO PARA GUARDAR EL FOLIO
+    folio: null
   };
 };
 
@@ -307,15 +309,16 @@ const isExpired = (s) => !ESTADOS_FINALES.includes(s.step) && now() - s.lastActi
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
 
 // =======================
-// ⏰ FUNCIÓN PARA VERIFICAR HORARIO
+// ⏰ FUNCIÓN PARA VERIFICAR HORARIO (CORREGIDA CON MOMENT-TIMEZONE)
 // =======================
 function verificarHorario() {
-  const ahora = new Date();
-  const hora = ahora.getHours();
-  const minutos = ahora.getMinutes();
-  const dia = ahora.getDay(); // 0=Domingo, 1=Lunes, ..., 6=Sábado
+  const ahoraMexico = moment().tz("America/Mexico_City");
+  const hora = ahoraMexico.hours();
+  const dia = ahoraMexico.day(); // 0=Domingo, 1=Lunes...
   
-  // Horario: 11:00 AM a 9:00 PM
+  console.log(`🇲🇽 Hora México: ${ahoraMexico.format('HH:mm')} - Día: ${dia} (${ahoraMexico.format('dddd')})`);
+  
+  // Horario: 11:00 AM a 9:00 PM (hora México)
   // Martes cerrado (dia === 2)
   if (dia === 2) {
     return {
@@ -327,11 +330,14 @@ function verificarHorario() {
   if (hora < 11 || hora >= 21) {
     return {
       abierto: false,
-      mensaje: "🕒 *TIENDA CERRADA*\n\nNuestro horario es de 11:00 AM a 9:00 PM.\nVuelve en nuestro horario de atención. 🍕"
+      mensaje: `🕒 *TIENDA CERRADA*\n\nSon las ${ahoraMexico.format('HH:mm')} hrs (hora México).\nNuestro horario es de 11:00 AM a 9:00 PM.\nVuelve en nuestro horario de atención. 🍕`
     };
   }
   
-  return { abierto: true };
+  return { 
+    abierto: true,
+    mensaje: `✅ Tienda abierta - ${ahoraMexico.format('HH:mm')} hrs (hora México)`
+  };
 }
 
 // =======================
@@ -510,22 +516,27 @@ app.get("/bloqueados", (req, res) => {
 });
 
 // =======================
-// TEST - VER HORA ACTUAL DEL SERVIDOR
+// TEST - VER HORA ACTUAL (CORREGIDO CON MOMENT-TIMEZONE)
 // =======================
 app.get("/test-hora", (req, res) => {
-  const ahora = new Date();
-  const hora = ahora.getHours();
-  const minutos = ahora.getMinutes();
-  const dia = ahora.getDay();
-  const fecha = ahora.toDateString();
+  const ahoraUTC = moment().utc();
+  const ahoraMexico = moment().tz("America/Mexico_City");
+  
   const dias = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
   
   const horario = verificarHorario();
   
   res.json({
-    fecha: fecha,
-    dia: dias[dia],
-    hora_actual: `${hora}:${minutos.toString().padStart(2, '0')}`,
+    servidor_UTC: {
+      hora: ahoraUTC.format('HH:mm'),
+      dia: dias[ahoraUTC.day()],
+      fecha: ahoraUTC.format('YYYY-MM-DD HH:mm:ss') + ' UTC'
+    },
+    mexico_CDT: {
+      hora: ahoraMexico.format('HH:mm'),
+      dia: dias[ahoraMexico.day()],
+      fecha: ahoraMexico.format('YYYY-MM-DD HH:mm:ss') + ' México'
+    },
     horario_abierto: horario.abierto ? "SÍ" : "NO",
     mensaje: horario.mensaje,
     folio_actual: folioActual,
@@ -601,7 +612,7 @@ const confirmarOferta = () => {
 };
 
 // =======================
-// WEBHOOK - POST (VERSIÓN CORREGIDA)
+// WEBHOOK - POST
 // =======================
 app.post("/webhook", async (req, res) => {
   try {
@@ -624,9 +635,10 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // 🆕 SI EL MENSAJE ES "HOLA", REINICIAR SIEMPRE
+    // 🆕 SI EL MENSAJE ES "HOLA" O SIMILAR, REINICIAR SIEMPRE
     const rawTextLower = msg.text?.body?.toLowerCase() || "";
-    if (rawTextLower === "hola" || rawTextLower === "nuevo pedido" || rawTextLower === "empezar" || rawTextLower === "menu") {
+    const palabrasReinicio = ["hola", "nuevo pedido", "empezar", "menu", "inicio", "reiniciar"];
+    if (palabrasReinicio.includes(rawTextLower)) {
       console.log(`🆕 Cliente ${from} quiere comenzar de nuevo. Reiniciando sesión.`);
       iniciarNuevaSesion(from, seleccionarSucursal());
       return res.sendStatus(200);
@@ -657,13 +669,227 @@ app.post("/webhook", async (req, res) => {
 
     // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image" || msg.type === "document") {
-      // ... (código existente de manejo de imágenes) ...
-      // Mantén tu código actual de manejo de imágenes aquí
-      console.log("📸 Procesando imagen...");
+      console.log("🔥🔥🔥 IMAGEN DETECTADA 🔥🔥🔥");
+      console.log(`📸 Cliente ${from} envió ${msg.type === "image" ? "imagen" : "documento"}`);
+      
+      if (!sessions[from]) {
+        console.log(`❌ Cliente ${from} no tiene sesión activa`);
+        await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
+        return res.sendStatus(200);
+      }
+      
+      const s = sessions[from];
+      console.log(`📍 Paso actual de ${from}: ${s.step}`);
+      console.log(`💰 Total temporal: $${s.totalTemp}`);
+      
+      if (!s.sucursal) {
+        console.log(`❌ Cliente ${from} no tiene sucursal seleccionada`);
+        await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
+        return res.sendStatus(200);
+      }
+      
+      const sucursal = SUCURSALES[s.sucursal];
+      console.log(`🏪 Sucursal seleccionada: ${sucursal.nombre} (${sucursal.telefono})`);
+      
+      if (s.step !== "ask_comprobante") {
+        console.log(`❌ Cliente ${from} envió imagen en paso incorrecto: ${s.step}`);
+        await sendMessage(from, textMsg(
+          "❌ *ERROR*\n\nNo estamos esperando un comprobante en este momento.\n" +
+          "Por favor, continúa con el flujo normal del pedido."
+        ));
+        return res.sendStatus(200);
+      }
+      
+      if (s.comprobanteCount >= 1) {
+        console.log(`⚠️ Cliente ${from} intentó enviar múltiples comprobantes`);
+        await sendMessage(from, textMsg(
+          "⚠️ *COMPROBANTE YA ENVIADO*\n\n" +
+          "Ya recibimos tu comprobante anteriormente.\n" +
+          "Espera a que lo verifiquemos. ⏳"
+        ));
+        return res.sendStatus(200);
+      }
+      
+      if (!s.totalTemp || s.totalTemp <= 0) {
+        console.log(`❌ Cliente ${from} no tiene monto válido: ${s.totalTemp}`);
+        await sendMessage(from, textMsg(
+          "❌ *ERROR*\n\nNo hay información de monto para este pedido.\n" +
+          "Por favor, comienza un nuevo pedido."
+        ));
+        delete sessions[from];
+        return res.sendStatus(200);
+      }
+      
+      s.comprobanteCount++;
+      s.lastAction = now();
+      s.warningSent = false;
+      
+      await sendMessage(from, textMsg(
+        "✅ *COMPROBANTE RECIBIDO*\n\n" +
+        "Hemos recibido tu comprobante.\n" +
+        "Lo estamos verificando...\n\n" +
+        "Te confirmaremos en minutos. ¡Gracias! 🙌"
+      ));
+      
+      let imageId = null;
+      let mimeType = null;
+      
+      if (msg.type === "image") {
+        imageId = msg.image.id;
+        mimeType = msg.image.mime_type || "image/jpeg";
+        console.log(`🖼️ ID de imagen: ${imageId}, MIME: ${mimeType}`);
+      } else if (msg.type === "document") {
+        if (msg.document.mime_type?.startsWith("image/")) {
+          imageId = msg.document.id;
+          mimeType = msg.document.mime_type;
+          console.log(`📄 Documento de imagen recibido, ID: ${imageId}, MIME: ${mimeType}`);
+        } else {
+          await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
+          return res.sendStatus(200);
+        }
+      }
+      
+      if (!imageId) {
+        console.log(`❌ No se pudo obtener ID de imagen`);
+        await sendMessage(from, textMsg("❌ Error al procesar la imagen. Intenta de nuevo."));
+        return res.sendStatus(200);
+      }
+      
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 1000);
+      const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
+      s.pagoId = pagoId;
+      
+      const ahoraMexico = moment().tz("America/Mexico_City");
+      const horaActual = ahoraMexico.format('hh:mm A');
+      
+      const telefonoFormateado = formatearNumero(from);
+      
+      const caption = 
+        `🖼️ *COMPROBANTE DE PAGO*\n` +
+        `━━━━━━━━━━━━━━━━━━\n\n` +
+        `🏪 *${sucursal.nombre}*\n` +
+        `👤 *Cliente:* ${telefonoFormateado}\n` +
+        `💰 *Monto:* $${s.totalTemp} MXN\n` +
+        `🆔 *Pago:* ${timestamp}\n` +
+        `⏰ *Hora:* ${horaActual} (México)`;
+      
+      try {
+        console.log(`📤 Reenviando imagen directamente a la sucursal...`);
+        
+        await sendMessage(sucursal.telefono, {
+          type: "image",
+          image: { 
+            id: imageId,
+            caption: caption
+          }
+        });
+        
+        console.log(`✅ Imagen reenviada a sucursal ${sucursal.telefono}`);
+      } catch (error) {
+        console.error(`❌ Error al reenviar imagen:`, error);
+        
+        try {
+          console.log(`🔄 Intentando método alternativo de descarga y subida...`);
+          
+          const mediaResponse = await fetch(`https://graph.facebook.com/v22.0/${imageId}`, {
+            headers: { 
+              'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+            }
+          });
+          
+          if (!mediaResponse.ok) {
+            throw new Error(`Error al obtener URL de imagen: ${mediaResponse.status}`);
+          }
+          
+          const mediaData = await mediaResponse.json();
+          const imageUrl = mediaData.url;
+          console.log(`📥 URL de imagen obtenida: ${imageUrl}`);
+          
+          const imageResponse = await fetch(imageUrl, {
+            headers: { 
+              'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+            }
+          });
+          
+          if (!imageResponse.ok) {
+            throw new Error(`Error al descargar imagen: ${imageResponse.status}`);
+          }
+          
+          const imageBuffer = await imageResponse.buffer();
+          console.log(`✅ Imagen descargada, tamaño: ${imageBuffer.length} bytes`);
+          
+          const formData = new FormData();
+          formData.append('file', imageBuffer, {
+            filename: 'comprobante.jpg',
+            contentType: mimeType || 'image/jpeg'
+          });
+          formData.append('messaging_product', 'whatsapp');
+          
+          const uploadResponse = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/media`, {
+            method: "POST",
+            headers: {
+              'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+              ...formData.getHeaders()
+            },
+            body: formData
+          });
+          
+          if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            throw new Error(`Error al subir imagen: ${uploadResponse.status} - ${errorText}`);
+          }
+          
+          const uploadData = await uploadResponse.json();
+          const newImageId = uploadData.id;
+          console.log(`✅ Imagen subida con nuevo ID: ${newImageId}`);
+          
+          await sendMessage(sucursal.telefono, {
+            type: "image",
+            image: { 
+              id: newImageId,
+              caption: caption
+            }
+          });
+          
+          console.log(`✅ Imagen enviada a sucursal usando método alternativo`);
+        } catch (altError) {
+          console.error(`❌ Error en método alternativo:`, altError);
+          
+          await sendMessage(sucursal.telefono, textMsg(
+            `⚠️ *ERROR AL ENVIAR COMPROBANTE*\n\n` +
+            `Cliente: ${telefonoFormateado}\n` +
+            `Monto: $${s.totalTemp}\n\n` +
+            `El comprobante no pudo ser enviado automáticamente.\n` +
+            `Por favor, contacta al cliente para obtener el comprobante manualmente.`
+          ));
+        }
+      }
+      
+      await sendMessage(sucursal.telefono, {
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: `🔍 *VERIFICAR PAGO - $${s.totalTemp}* (${horaActual})` },
+          action: {
+            buttons: [
+              { type: "reply", reply: { id: `pago_ok_${pagoId}`, title: "✅ CONFIRMAR" } },
+              { type: "reply", reply: { id: `pago_no_${pagoId}`, title: "❌ RECHAZAR" } },
+              { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
+            ]
+          }
+        }
+      });
+      
+      s.comprobanteEnviado = true;
+      s.step = "esperando_confirmacion";
+      
+      console.log(`✅ Proceso completado para cliente ${from} con ID ${pagoId}`);
+      
       return res.sendStatus(200);
     }
     
-    // 🔥 DETECTAR RESPUESTA DE SUCURSAL (VERSIÓN CORREGIDA)
+    // 🔥 DETECTAR RESPUESTA DE SUCURSAL
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
       const fromSucursal = msg.from;
@@ -707,7 +933,7 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // ===== ACEPTAR PEDIDO (CORREGIDO) =====
+      // ===== ACEPTAR PEDIDO =====
       if (replyId.startsWith("aceptar_")) {
         const pedidoId = replyId.replace("aceptar_", "");
         console.log(`✅ Procesando aceptación de pedido: ${pedidoId}`);
@@ -1398,7 +1624,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// 🎨 FUNCIONES UI (se mantienen igual)
+// 🎨 FUNCIONES UI
 // =======================
 const seleccionarSucursal = () => {
   return buttons(
@@ -1822,14 +2048,8 @@ const buildNegocioSummary = (s) => {
     }
   }
   
-  text += `\n🕒 ${new Date().toLocaleString('es-MX', { 
-    hour12: true, 
-    hour: '2-digit', 
-    minute: '2-digit',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  })}\n`;
+  const ahoraMexico = moment().tz("America/Mexico_City");
+  text += `\n🕒 ${ahoraMexico.format('hh:mm A')} - ${ahoraMexico.format('DD/MM/YYYY')} (México)\n`;
   text += `━━━━━━━━━━━━━━━━━━\n`;
   text += `✨ Prepáralo con amor`;
   
@@ -1935,7 +2155,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V21 (Botones de aceptar/rechazar CORREGIDOS) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V22 (Horario México CORREGIDO) corriendo en puerto ${PORT}`);
   console.log(`📅 Fecha actual del servidor: ${new Date().toDateString()}`);
   console.log(`📌 Folio actual: ${folioActual}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965 → ${formatearNumero("5216391946965")}`);
@@ -1946,11 +2166,10 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`⏱️ Tiempo preparación: Recoger ${TIEMPO_PREPARACION.recoger} | Domicilio ${TIEMPO_PREPARACION.domicilio}`);
   console.log(`🎁 Oferta especial: ${ofertaActiva() ? "ACTIVA" : "INACTIVA"} (Vie-Sáb-Dom)`);
   console.log(`⏰ Tiempo máximo para aceptar pedidos: 1 HORA`);
-  console.log(`🕒 Horario: 11:00 AM - 9:00 PM (Martes cerrado)`);
+  console.log(`🇲🇽 Horario: 11:00 AM - 9:00 PM (HORA MÉXICO) - CORREGIDO`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
-  console.log(`🕒 Test hora: /test-hora`);
+  console.log(`🕒 Test hora (México): /test-hora`);
   console.log(`📋 Test pedidos activos: /test-pedidos`);
-  console.log(`✅ BOTONES DE ACEPTAR/RECHAZAR CORREGIDOS`);
 });
