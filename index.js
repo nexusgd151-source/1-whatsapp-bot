@@ -342,40 +342,59 @@ async function checkSessionWarning(from, s) {
 }
 
 // =======================
-// ⏰ FUNCIÓN PARA VERIFICAR PEDIDOS PENDIENTES DE ACEPTACIÓN
+// ⏰ FUNCIÓN PARA VERIFICAR PEDIDOS PENDIENTES DE ACEPTACIÓN (VERSIÓN MEJORADA)
 // =======================
 async function verificarPedidosPendientes() {
   const ahora = now();
   
   for (const [from, s] of Object.entries(sessions)) {
-    // Solo verificar pedidos que están esperando confirmación de la sucursal
+    // Solo verificar pedidos que están esperando confirmación
     if (s.step === "esperando_confirmacion_sucursal" && s.pedidoId) {
+      
+      // ✅ VERIFICAR SI EL PEDIDO YA FUE ACEPTADO
+      // Buscar evidencia de que el pedido fue procesado
+      const pedidoAceptado = 
+        s.pagoProcesado ||              // Pago procesado
+        s.resumenEnviado ||              // Resumen enviado
+        s.step === "completado" ||       // Paso completado
+        (s.pagosProcesados && Object.keys(s.pagosProcesados).length > 0); // Pagos registrados
+      
+      // Si ya fue aceptado, cambiar el estado para no revisarlo más
+      if (pedidoAceptado) {
+        if (s.step !== "completado") {
+          console.log(`✅ Pedido ${s.pedidoId} ya fue aceptado, marcando como completado`);
+          s.step = "completado";
+        }
+        continue; // Saltar a la siguiente sesión
+      }
+      
+      // Si no ha sido aceptado, verificar tiempo
       const tiempoEspera = ahora - (s.pedidoEnviadoEn || s.lastAction);
       
-      // Si ha pasado más de 30 minutos desde que se envió el pedido
+      // Si ha pasado más de 30 minutos
       if (tiempoEspera > TIEMPO_MAXIMO_ACEPTACION) {
-        console.log(`⏰ Pedido ${s.pedidoId} expiró por falta de confirmación (${Math.floor(tiempoEspera / 60000)} minutos)`);
+        console.log(`⏰ Pedido ${s.pedidoId} expiró (${Math.floor(tiempoEspera / 60000)} minutos)`);
         
-        // Notificar al cliente que su pedido expiró
+        // Notificar al cliente
         await sendMessage(from, textMsg(
           "⏰ *PEDIDO EXPIRADO*\n\n" +
-          `Han pasado más de 30 minutos y la sucursal no ha confirmado tu pedido.\n\n` +
-          `Por seguridad, el pedido ha sido cancelado automáticamente.\n\n` +
-          `Puedes intentar de nuevo escribiendo *Hola* para comenzar. 🍕`
+          `Han pasado más de 30 minutos sin confirmación.\n\n` +
+          `El pedido ha sido cancelado automáticamente.\n\n` +
+          `Escribe *Hola* para comenzar de nuevo. 🍕`
         )).catch(e => console.log("Error al notificar expiración"));
         
-        // Notificar a la sucursal que el pedido expiró
+        // Notificar a la sucursal
         const sucursal = SUCURSALES[s.sucursal];
         if (sucursal) {
           await sendMessage(sucursal.telefono, textMsg(
-            `⏰ *PEDIDO EXPIRADO POR TIEMPO*\n\n` +
+            `⏰ *PEDIDO EXPIRADO*\n\n` +
             `Cliente: ${from}\n` +
             `Pedido: ${s.pedidoId}\n\n` +
-            `El pedido ha sido cancelado automáticamente después de 30 minutos sin confirmación.`
+            `Cancelado automáticamente por tiempo.`
           )).catch(e => console.log("Error al notificar a sucursal"));
         }
         
-        // Eliminar la sesión del cliente
+        // Eliminar la sesión
         delete sessions[from];
       }
     }
