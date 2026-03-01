@@ -133,7 +133,7 @@ function ofertaActiva() {
 // =======================
 // ⏰ CONFIGURACIÓN DE TIEMPO PARA ACEPTACIÓN DE PEDIDOS
 // =======================
-const TIEMPO_MAXIMO_ACEPTACION = 30 * 60 * 1000; // 30 minutos en milisegundos
+const TIEMPO_MAXIMO_ACEPTACION = 60 * 60 * 1000; // 1 hora en milisegundos (cambiado de 30 min)
 
 // =======================
 // 🏪 CONFIGURACIÓN DE SUCURSALES
@@ -242,6 +242,25 @@ const EXTRAS = {
 const sessions = {};
 
 // =======================
+// 🆕 FUNCIÓN PARA INICIAR NUEVA SESIÓN (SIEMPRE LIMPIA)
+// =======================
+function iniciarNuevaSesion(from, mensajeInicial) {
+  // Siempre eliminar sesión anterior si existe
+  if (sessions[from]) {
+    console.log(`🔄 Reiniciando sesión para ${from} (anterior: ${sessions[from].step})`);
+    delete sessions[from];
+  }
+  
+  // Crear sesión nueva
+  resetSession(from);
+  
+  // Enviar mensaje de bienvenida
+  if (mensajeInicial) {
+    sendMessage(from, mensajeInicial);
+  }
+}
+
+// =======================
 // UTILS
 // =======================
 const normalize = t =>
@@ -342,22 +361,23 @@ async function checkSessionWarning(from, s) {
 }
 
 // =======================
-// ⏰ FUNCIÓN PARA VERIFICAR PEDIDOS PENDIENTES DE ACEPTACIÓN (VERSIÓN MEJORADA)
+// ⏰ FUNCIÓN PARA VERIFICAR PEDIDOS PENDIENTES DE ACEPTACIÓN (VERSIÓN DEFINITIVA CORREGIDA)
 // =======================
 async function verificarPedidosPendientes() {
   const ahora = now();
+  const TIEMPO_LIMPIEZA_NOCTURNA = 12 * 60 * 60 * 1000; // 12 horas
   
   for (const [from, s] of Object.entries(sessions)) {
-    // Solo verificar pedidos que están esperando confirmación
-    if (s.step === "esperando_confirmacion_sucursal" && s.pedidoId) {
+    
+    // CASO 1: Pedidos esperando confirmación de la sucursal
+    if (s.step === "esperando_confirmacion_sucursal") {
+      const tiempoEspera = ahora - (s.pedidoEnviadoEn || s.lastAction);
       
-      // ✅ VERIFICAR SI EL PEDIDO YA FUE ACEPTADO
-      // Buscar evidencia de que el pedido fue procesado
+      // ✅ VERIFICAR SI EL PEDIDO YA FUE ACEPTADO POR LA SUCURSAL
       const pedidoAceptado = 
         s.pagoProcesado ||              // Pago procesado
         s.resumenEnviado ||              // Resumen enviado
-        s.step === "completado" ||       // Paso completado
-        (s.pagosProcesados && Object.keys(s.pagosProcesados).length > 0); // Pagos registrados
+        s.step === "completado";         // Paso completado
       
       // Si ya fue aceptado, cambiar el estado para no revisarlo más
       if (pedidoAceptado) {
@@ -368,35 +388,39 @@ async function verificarPedidosPendientes() {
         continue; // Saltar a la siguiente sesión
       }
       
-      // Si no ha sido aceptado, verificar tiempo
-      const tiempoEspera = ahora - (s.pedidoEnviadoEn || s.lastAction);
-      
-      // Si ha pasado más de 30 minutos
+      // Si NO ha sido aceptado y pasó más de 1 hora, cancelar
       if (tiempoEspera > TIEMPO_MAXIMO_ACEPTACION) {
-        console.log(`⏰ Pedido ${s.pedidoId} expiró (${Math.floor(tiempoEspera / 60000)} minutos)`);
+        console.log(`⏰ Pedido ${s.pedidoId} expiró después de ${Math.floor(tiempoEspera / 60000)} minutos sin respuesta`);
         
         // Notificar al cliente
         await sendMessage(from, textMsg(
           "⏰ *PEDIDO EXPIRADO*\n\n" +
-          `Han pasado más de 30 minutos sin confirmación.\n\n` +
-          `El pedido ha sido cancelado automáticamente.\n\n` +
-          `Escribe *Hola* para comenzar de nuevo. 🍕`
+          `Han pasado más de 1 hora y la sucursal no ha respondido.\n\n` +
+          `Tu pedido ha sido cancelado automáticamente.\n` +
+          `Escribe *Hola* para hacer un nuevo pedido. 🍕`
         )).catch(e => console.log("Error al notificar expiración"));
         
-        // Notificar a la sucursal
+        // Notificar a la sucursal (opcional)
         const sucursal = SUCURSALES[s.sucursal];
         if (sucursal) {
           await sendMessage(sucursal.telefono, textMsg(
-            `⏰ *PEDIDO EXPIRADO*\n\n` +
-            `Cliente: ${from}\n` +
-            `Pedido: ${s.pedidoId}\n\n` +
-            `Cancelado automáticamente por tiempo.`
+            `⏰ *PEDIDO EXPIRADO POR TIEMPO*\n\n` +
+            `Cliente: ${formatearNumero(from)}\n` +
+            `Pedido: #${s.folio || 'Sin folio'}\n\n` +
+            `Cancelado automáticamente después de 1 hora sin respuesta.`
           )).catch(e => console.log("Error al notificar a sucursal"));
         }
         
         // Eliminar la sesión
         delete sessions[from];
       }
+    }
+    
+    // CASO 2: Limpieza de sesiones muy antiguas (más de 12 horas)
+    const tiempoSesion = ahora - s.lastAction;
+    if (tiempoSesion > TIEMPO_LIMPIEZA_NOCTURNA) {
+      console.log(`🧹 Limpiando sesión muy antigua de ${from} (${Math.floor(tiempoSesion / 3600000)} horas)`);
+      delete sessions[from];
     }
   }
 }
@@ -439,11 +463,11 @@ setInterval(async () => {
 }, 60000);
 
 // =======================
-// ⏰ VERIFICACIÓN DE PEDIDOS PENDIENTES (cada minuto)
+// ⏰ VERIFICACIÓN DE PEDIDOS PENDIENTES (cada 5 minutos para no saturar)
 // =======================
 setInterval(() => {
   verificarPedidosPendientes();
-}, 60000); // Verificar cada minuto
+}, 5 * 60 * 1000); // Verificar cada 5 minutos
 
 // =======================
 // WEBHOOK - GET
@@ -576,12 +600,25 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
+    // 🆕 NUEVO: SI EL MENSAJE ES "HOLA" O "NUEVO PEDIDO", REINICIAR SIEMPRE
+    const rawTextLower = msg.text?.body?.toLowerCase() || "";
+    if (rawTextLower === "hola" || rawTextLower === "nuevo pedido" || rawTextLower === "empezar" || rawTextLower === "menu") {
+      console.log(`🆕 Cliente ${from} quiere comenzar de nuevo. Reiniciando sesión.`);
+      iniciarNuevaSesion(from, seleccionarSucursal());
+      return res.sendStatus(200);
+    }
+
     // 🔥 VERIFICAR SESIÓN
     if (sessions[from]) {
       const sessionActiva = await checkSessionWarning(from, sessions[from]);
       if (!sessionActiva) {
         return res.sendStatus(200);
       }
+    } else {
+      // No hay sesión, crear una nueva
+      resetSession(from);
+      await sendMessage(from, seleccionarSucursal());
+      return res.sendStatus(200);
     }
 
     // 🔥 VERIFICAR HORARIO (solo para mensajes que no vienen de sucursales)
@@ -1028,10 +1065,11 @@ app.post("/webhook", async (req, res) => {
               `Folio: #${s.folio}`
             ));
             
-            if (s.pagoMetodo === "Efectivo") {
-              s.step = "completado";
-              s.lastAction = now();
-            }
+            // ✅ MARCAR EXPLÍCITAMENTE COMO COMPLETADO
+            s.step = "completado";
+            s.pagoProcesado = true;
+            s.lastAction = now();
+            
             break;
           }
         }
@@ -1437,7 +1475,7 @@ app.post("/webhook", async (req, res) => {
           `👤 Cliente: ${telefonoFormateado}\n\n` +
           "Tu pedido ha sido enviado a la sucursal.\n" +
           "Espera la confirmación para saber si fue aceptado.\n\n" +
-          "⏱️ *La sucursal tiene 30 minutos para confirmar*\n" +
+          "⏱️ *La sucursal tiene 1 hora para confirmar*\n" +
           "Si no confirman en ese tiempo, el pedido se cancelará automáticamente.\n\n" +
           "Te notificaremos cuando haya una respuesta. ⏳"
         ));
@@ -1494,7 +1532,7 @@ app.post("/webhook", async (req, res) => {
               `👤 Cliente: ${telefonoFormateado}\n\n` +
               "Tu pedido ha sido enviado a la sucursal.\n" +
               "Espera la confirmación para saber si fue aceptado.\n\n" +
-              "⏱️ *La sucursal tiene 30 minutos para confirmar*\n" +
+              "⏱️ *La sucursal tiene 1 hora para confirmar*\n" +
               "Si no confirman en ese tiempo, el pedido se cancelará automáticamente.\n\n" +
               "Te notificaremos en minutos. ⏳"
             ));
@@ -1525,7 +1563,7 @@ app.post("/webhook", async (req, res) => {
         break;
         
       case "esperando_confirmacion_sucursal":
-        reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nTe avisaremos cuando sea aceptado o si pasa más de 30 minutos se cancelará automáticamente. 🍕");
+        reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nTe avisaremos cuando sea aceptado o si pasa más de 1 hora se cancelará automáticamente. 🍕");
         break;
         
       case "completado":
@@ -2087,7 +2125,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V19 (Folios + Horario + Teléfono Formateado) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V20 (Corregido - Pedidos no se atoran) corriendo en puerto ${PORT}`);
   console.log(`📅 Fecha actual del servidor: ${new Date().toDateString()}`);
   console.log(`📌 Folio actual: ${folioActual}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965 → ${formatearNumero("5216391946965")}`);
@@ -2098,11 +2136,12 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
   console.log(`⏱️ Tiempo preparación: Recoger ${TIEMPO_PREPARACION.recoger} | Domicilio ${TIEMPO_PREPARACION.domicilio}`);
   console.log(`🎁 Oferta especial: ${ofertaActiva() ? "ACTIVA" : "INACTIVA"} (Vie-Sáb-Dom)`);
-  console.log(`⏰ Tiempo máximo para aceptar pedidos: 30 minutos`);
+  console.log(`⏰ Tiempo máximo para aceptar pedidos: 1 HORA (cambiado de 30 min)`);
   console.log(`🕒 Horario: 11:00 AM - 9:00 PM (Martes cerrado)`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
   console.log(`🕒 Test hora: /test-hora`);
   console.log(`🛑 Estados finales sin alertas: ${ESTADOS_FINALES.join(", ")}`);
+  console.log(`🆕 Nueva función: Escribe "Hola" para reiniciar cualquier sesión atorada`);
 });
