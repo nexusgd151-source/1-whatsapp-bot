@@ -13,12 +13,76 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // =======================
-// 📌 SISTEMA DE FOLIOS DIARIOS
+// 📌 SISTEMA DE FOLIOS DIARIOS (VERSIÓN MEJORADA)
 // =======================
 const FOLIOS_FILE = path.join(__dirname, 'folios.json');
 
 let folioActual = 1;
 let fechaActual = new Date().toDateString();
+
+function guardarFolios() {
+  try {
+    const datos = {
+      fecha: fechaActual,
+      folio: folioActual
+    };
+    fs.writeFileSync(FOLIOS_FILE, JSON.stringify(datos, null, 2));
+    console.log(`📌 Folios guardados: ${fechaActual}, folio: ${folioActual}`);
+  } catch (e) {
+    console.log("❌ Error guardando folio:", e.message);
+  }
+}
+
+function inicializarFolios() {
+  try {
+    fechaActual = new Date().toDateString();
+    folioActual = 1;
+    guardarFolios();
+    console.log("📌 Archivo de folios inicializado correctamente");
+  } catch (e) {
+    console.log("❌ Error inicializando folios:", e.message);
+  }
+}
+
+// Cargar folio guardado si existe
+try {
+  if (fs.existsSync(FOLIOS_FILE)) {
+    const data = fs.readFileSync(FOLIOS_FILE, 'utf8');
+    
+    if (!data || data.trim() === '') {
+      console.log("⚠️ Archivo de folios vacío. Creando nuevo...");
+      inicializarFolios();
+    } else {
+      try {
+        const saved = JSON.parse(data);
+        const hoy = new Date().toDateString();
+        
+        if (saved && saved.fecha && typeof saved.folio === 'number') {
+          if (saved.fecha === hoy) {
+            folioActual = saved.folio;
+            fechaActual = saved.fecha;
+            console.log(`📌 Folio cargado: ${folioActual} para hoy ${fechaActual}`);
+          } else {
+            console.log(`📅 Día diferente: ${saved.fecha} -> ${hoy}. Reiniciando folio a 1.`);
+            inicializarFolios();
+          }
+        } else {
+          console.log("⚠️ Formato inválido. Reiniciando...");
+          inicializarFolios();
+        }
+      } catch (parseError) {
+        console.log("❌ Error parseando JSON. Creando archivo nuevo...");
+        inicializarFolios();
+      }
+    }
+  } else {
+    console.log("📌 Archivo de folios no existe. Creando nuevo...");
+    inicializarFolios();
+  }
+} catch (e) {
+  console.log("❌ Error cargando folios:", e.message);
+  inicializarFolios();
+}
 
 function obtenerFolio() {
   const hoy = new Date().toDateString();
@@ -31,37 +95,9 @@ function obtenerFolio() {
   
   const folio = folioActual;
   folioActual++;
-  
-  try {
-    fs.writeFileSync(FOLIOS_FILE, JSON.stringify({
-      fecha: fechaActual,
-      folio: folioActual
-    }));
-  } catch (e) {
-    console.log("❌ Error guardando folio:", e.message);
-  }
+  guardarFolios();
   
   return folio;
-}
-
-try {
-  if (fs.existsSync(FOLIOS_FILE)) {
-    const data = fs.readFileSync(FOLIOS_FILE, 'utf8');
-    const saved = JSON.parse(data);
-    const hoy = new Date().toDateString();
-    
-    if (saved.fecha === hoy) {
-      folioActual = saved.folio;
-      fechaActual = saved.fecha;
-      console.log(`📌 Folio cargado: ${folioActual} para hoy ${fechaActual}`);
-    } else {
-      console.log(`📅 Día diferente. Reiniciando folio a 1.`);
-    }
-  } else {
-    console.log("📌 Archivo de folios no existe. Comenzando con folio 1.");
-  }
-} catch (e) {
-  console.log("❌ Error cargando folios:", e.message);
 }
 
 // =======================
@@ -164,8 +200,8 @@ const SUCURSALES = {
 // =======================
 // ⏰ CONFIGURACIÓN DE SESIÓN
 // =======================
-const SESSION_TIMEOUT = 10 * 60 * 1000;
-const WARNING_TIME = 5 * 60 * 1000;
+const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutos
+const WARNING_TIME = 15 * 60 * 1000;    // 15 minutos
 const UMBRAL_TRANSFERENCIA = 450;
 
 const TIEMPO_PREPARACION = {
@@ -320,8 +356,57 @@ function verificarHorario() {
   
   return { 
     abierto: true,
-    mensaje: `✅ Tienda abierta - ${ahoraMexico.format('HH:mm')} hrs (hora México)`
+    hora: hora,
+    minutos: ahoraMexico.minutes()
   };
+}
+
+// =======================
+// 🚚 FUNCIÓN PARA VERIFICAR DOMICILIO (HASTA 8:20 PM)
+// =======================
+function domicilioDisponible() {
+  const ahoraMexico = moment().tz("America/Mexico_City");
+  const hora = ahoraMexico.hours();
+  const minutos = ahoraMexico.minutes();
+  const horaDecimal = hora + (minutos / 60);
+  
+  console.log(`🚚 Verificando domicilio: ${ahoraMexico.format('HH:mm')} hrs`);
+  
+  // Límite: 8:20 PM = 20.333 horas
+  const LIMITE_DOMICILIO = 20 + (20/60); // 20.333
+  
+  if (horaDecimal >= LIMITE_DOMICILIO) {
+    return {
+      disponible: false,
+      mensaje: `🕒 *DOMICILIO NO DISPONIBLE*\n\nSon las ${ahoraMexico.format('HH:mm')} hrs.\nEl servicio a domicilio solo está disponible hasta las 8:20 PM.\n\nPuedes pedir para *RECOGER EN TIENDA* hasta las 8:50 PM. 🏪`
+    };
+  }
+  
+  return { disponible: true };
+}
+
+// =======================
+// 🏪 FUNCIÓN PARA VERIFICAR RECOGER (HASTA 8:50 PM)
+// =======================
+function recogerDisponible() {
+  const ahoraMexico = moment().tz("America/Mexico_City");
+  const hora = ahoraMexico.hours();
+  const minutos = ahoraMexico.minutes();
+  const horaDecimal = hora + (minutos / 60);
+  
+  console.log(`🏪 Verificando recoger: ${ahoraMexico.format('HH:mm')} hrs`);
+  
+  // Límite: 8:50 PM = 20.833 horas (10 minutos antes del cierre)
+  const LIMITE_RECOGER = 20 + (50/60); // 20.833
+  
+  if (horaDecimal >= LIMITE_RECOGER) {
+    return {
+      disponible: false,
+      mensaje: `🕒 *RECOGER NO DISPONIBLE*\n\nSon las ${ahoraMexico.format('HH:mm')} hrs.\nEl servicio para recoger en tienda solo está disponible hasta las 8:50 PM.\n\nLa tienda cierra a las 9:00 PM. 🏪`
+    };
+  }
+  
+  return { disponible: true };
 }
 
 // =======================
@@ -340,7 +425,7 @@ async function checkSessionWarning(from, s) {
     delete sessions[from];
     await sendMessage(from, textMsg(
       "⏰ *SESIÓN EXPIRADA*\n\n" +
-      "Llevas más de 10 minutos sin actividad.\n" +
+      "Llevas más de 30 minutos sin actividad.\n" +
       "Tu pedido ha sido cancelado.\n\n" +
       "Escribe *Hola* para comenzar de nuevo. 🍕"
     ));
@@ -423,7 +508,7 @@ setInterval(async () => {
       console.log(`⏰ Sesión expirada automáticamente: ${from}`);
       await sendMessage(from, textMsg(
         "⏰ *SESIÓN EXPIRADA*\n\n" +
-        "Llevas más de 10 minutos sin actividad.\n" +
+        "Llevas más de 30 minutos sin actividad.\n" +
         "Tu pedido ha sido cancelado.\n\n" +
         "Escribe *Hola* para comenzar de nuevo. 🍕"
       )).catch(e => console.log("Error al enviar mensaje de expiración"));
@@ -497,6 +582,8 @@ app.get("/test-hora", (req, res) => {
   const dias = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
   
   const horario = verificarHorario();
+  const domicilio = domicilioDisponible();
+  const recoger = recogerDisponible();
   
   res.json({
     servidor_UTC: {
@@ -509,10 +596,22 @@ app.get("/test-hora", (req, res) => {
       dia: dias[ahoraMexico.day()],
       fecha: ahoraMexico.format('YYYY-MM-DD HH:mm:ss') + ' México'
     },
-    horario_abierto: horario.abierto ? "SÍ" : "NO",
-    mensaje: horario.mensaje,
+    horario_tienda: {
+      abierto: horario.abierto ? "SÍ" : "NO",
+      mensaje: horario.mensaje
+    },
+    domicilio: {
+      disponible: domicilio.disponible ? "SÍ" : "NO",
+      mensaje: domicilio.mensaje
+    },
+    recoger: {
+      disponible: recoger.disponible ? "SÍ" : "NO",
+      mensaje: recoger.mensaje
+    },
     folio_actual: folioActual,
-    fecha_folio: fechaActual
+    fecha_folio: fechaActual,
+    sesion_timeout: "30 minutos",
+    warning_time: "15 minutos"
   });
 });
 
@@ -578,7 +677,7 @@ const confirmarOferta = () => {
 };
 
 // =======================
-// WEBHOOK - POST (VERSIÓN CORREGIDA)
+// WEBHOOK - POST
 // =======================
 app.post("/webhook", async (req, res) => {
   try {
@@ -657,13 +756,83 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Aquí va todo el código de manejo de imágenes (lo dejamos igual)
-      // Por brevedad, no incluyo todo el código de imágenes, pero mantén el tuyo
+      if (s.comprobanteCount >= 1) {
+        await sendMessage(from, textMsg("⚠️ Ya recibimos tu comprobante. Espera verificación."));
+        return res.sendStatus(200);
+      }
+      
+      s.comprobanteCount++;
+      s.lastAction = now();
+      s.warningSent = false;
+      
+      await sendMessage(from, textMsg("✅ *COMPROBANTE RECIBIDO*\n\nLo estamos verificando..."));
+      
+      let imageId = null;
+      let mimeType = null;
+      
+      if (msg.type === "image") {
+        imageId = msg.image.id;
+        mimeType = msg.image.mime_type || "image/jpeg";
+      } else if (msg.type === "document") {
+        if (msg.document.mime_type?.startsWith("image/")) {
+          imageId = msg.document.id;
+          mimeType = msg.document.mime_type;
+        } else {
+          await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
+          return res.sendStatus(200);
+        }
+      }
+      
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 1000);
+      const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
+      s.pagoId = pagoId;
+      
+      const ahoraMexico = moment().tz("America/Mexico_City");
+      const horaActual = ahoraMexico.format('hh:mm A');
+      const telefonoFormateado = formatearNumero(from);
+      
+      const caption = 
+        `🖼️ *COMPROBANTE DE PAGO*\n` +
+        `━━━━━━━━━━━━━━━━━━\n\n` +
+        `🏪 *${sucursal.nombre}*\n` +
+        `👤 *Cliente:* ${telefonoFormateado}\n` +
+        `💰 *Monto:* $${s.totalTemp} MXN\n` +
+        `⏰ *Hora:* ${horaActual} (México)`;
+      
+      try {
+        await sendMessage(sucursal.telefono, {
+          type: "image",
+          image: { id: imageId, caption: caption }
+        });
+      } catch (error) {
+        await sendMessage(sucursal.telefono, textMsg(
+          `⚠️ *COMPROBANTE DE ${telefonoFormateado}*\nMonto: $${s.totalTemp}\n(Imagen no pudo ser reenviada automáticamente)`
+        ));
+      }
+      
+      await sendMessage(sucursal.telefono, {
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: `🔍 *VERIFICAR PAGO - $${s.totalTemp}* (${horaActual})` },
+          action: {
+            buttons: [
+              { type: "reply", reply: { id: `pago_ok_${pagoId}`, title: "✅ CONFIRMAR" } },
+              { type: "reply", reply: { id: `pago_no_${pagoId}`, title: "❌ RECHAZAR" } },
+              { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
+            ]
+          }
+        }
+      });
+      
+      s.comprobanteEnviado = true;
+      s.step = "esperando_confirmacion";
       
       return res.sendStatus(200);
     }
     
-    // ==================== PARTE CORREGIDA: MANEJO DE BOTONES ====================
+    // ==================== MANEJO DE BOTONES ====================
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
       const fromNumber = msg.from;
@@ -671,38 +840,26 @@ app.post("/webhook", async (req, res) => {
       
       console.log(`🔍 Botón presionado: ${replyId} (${replyTitle}) por ${fromNumber}`);
       
-      // DETERMINAR SI ES CLIENTE O SUCURSAL
       const esSucursal = Object.values(SUCURSALES).some(s => s.telefono === fromNumber);
       const esCliente = sessions[fromNumber] ? true : false;
       
-      // CASO 1: ES CLIENTE - DEJAR QUE EL FLUJO NORMAL LO PROCESE
       if (esCliente) {
         console.log(`👤 Cliente ${fromNumber} presionó botón, será procesado en el flujo normal`);
-        // No hacemos return, dejamos que el código después lo maneje
       }
-      // CASO 2: ES SUCURSAL - PROCESAR RESPUESTA DE SUCURSAL
       else if (esSucursal) {
         console.log(`🏪 Sucursal ${fromNumber} respondió`);
         
-        // BLOQUEAR CLIENTE
         if (replyId.startsWith("bloquear_")) {
           const numeroABloquear = replyId.replace("bloquear_", "");
           blockedNumbers.add(numeroABloquear);
           guardarBloqueados();
-          
           await sendMessage(fromNumber, textMsg(`✅ Cliente ${formatearNumero(numeroABloquear)} bloqueado`));
-          
           try {
-            await sendMessage(numeroABloquear, textMsg(
-              "🚫 *HAS SIDO BLOQUEADO*\n\n" +
-              "Por comportamiento inapropiado, no podrás seguir usando el bot."
-            ));
+            await sendMessage(numeroABloquear, textMsg("🚫 *HAS SIDO BLOQUEADO*"));
           } catch (e) {}
-          
           return res.sendStatus(200);
         }
         
-        // DESBLOQUEAR CLIENTE
         if (replyId.startsWith("desbloquear_")) {
           const numeroADesbloquear = replyId.replace("desbloquear_", "");
           if (blockedNumbers.has(numeroADesbloquear)) {
@@ -713,17 +870,12 @@ app.post("/webhook", async (req, res) => {
           return res.sendStatus(200);
         }
         
-        // ACEPTAR PEDIDO
         if (replyId.startsWith("aceptar_")) {
           const pedidoId = replyId.replace("aceptar_", "");
           console.log(`✅ Procesando aceptación de pedido: ${pedidoId}`);
           
-          let pedidoEncontrado = false;
-          
           for (const [cliente, s] of Object.entries(sessions)) {
             if (s.pedidoId === pedidoId) {
-              pedidoEncontrado = true;
-              
               const sucursalPedido = SUCURSALES[s.sucursal];
               const telefonoFormateado = formatearNumero(cliente);
               const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
@@ -732,43 +884,28 @@ app.post("/webhook", async (req, res) => {
                 `✅ *¡PEDIDO #${s.folio} ACEPTADO!*\n\n` +
                 `🏪 *${sucursalPedido.nombre}*\n\n` +
                 `👤 Cliente: ${telefonoFormateado}\n\n` +
-                "Tu pedido ha sido aceptado y ya está en preparación.\n" +
-                `⏱️ Tiempo estimado: ${tiempoPrep}\n\n` +
-                "¡Gracias por tu preferencia! 🙌"
+                `⏱️ Tiempo estimado: ${tiempoPrep}`
               ));
               
               await sendMessage(fromNumber, textMsg(
-                `✅ *PEDIDO #${s.folio} ACEPTADO*\n\n` +
-                `Cliente: ${telefonoFormateado}`
+                `✅ *PEDIDO #${s.folio} ACEPTADO*\n\nCliente: ${telefonoFormateado}`
               ));
               
               s.step = "completado";
               s.pagoProcesado = true;
               s.lastAction = now();
-              
-              console.log(`✅ Pedido ${pedidoId} aceptado por sucursal ${fromNumber}`);
               break;
             }
           }
-          
-          if (!pedidoEncontrado) {
-            await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe o expiró"));
-          }
-          
           return res.sendStatus(200);
         }
         
-        // RECHAZAR PEDIDO
         if (replyId.startsWith("rechazar_")) {
           const pedidoId = replyId.replace("rechazar_", "");
           console.log(`❌ Procesando rechazo de pedido: ${pedidoId}`);
           
-          let pedidoEncontrado = false;
-          
           for (const [cliente, s] of Object.entries(sessions)) {
             if (s.pedidoId === pedidoId) {
-              pedidoEncontrado = true;
-              
               const sucursalPedido = SUCURSALES[s.sucursal];
               const telefonoFormateado = formatearNumero(cliente);
               
@@ -781,48 +918,70 @@ app.post("/webhook", async (req, res) => {
               ));
               
               await sendMessage(fromNumber, textMsg(
-                `❌ *PEDIDO #${s.folio} RECHAZADO*\n\n` +
-                `Cliente: ${telefonoFormateado}`
+                `❌ *PEDIDO #${s.folio} RECHAZADO*\n\nCliente: ${telefonoFormateado}`
               ));
               
               s.step = "completado";
               s.lastAction = now();
-              
-              console.log(`❌ Pedido ${pedidoId} rechazado por sucursal ${fromNumber}`);
               break;
             }
           }
+          return res.sendStatus(200);
+        }
+        
+        if (replyId.startsWith("pago_ok_")) {
+          const partes = replyId.split("_");
+          const cliente = partes[2];
+          const sucursalKey = partes[3];
           
-          if (!pedidoEncontrado) {
-            await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe o expiró"));
+          if (!sessions[cliente]) {
+            await sendMessage(fromNumber, textMsg("⚠️ Cliente no encontrado"));
+            return res.sendStatus(200);
           }
           
+          const s = sessions[cliente];
+          if (s.pagoProcesado) {
+            await sendMessage(fromNumber, textMsg("⚠️ Pago ya procesado"));
+            return res.sendStatus(200);
+          }
+          
+          s.pagoProcesado = true;
+          
+          if (!s.resumenEnviado) {
+            await sendMessage(cliente, buildClienteSummary(s));
+            await sendMessage(SUCURSALES[sucursalKey].telefono, buildNegocioSummary(s));
+            s.resumenEnviado = true;
+          }
+          
+          await sendMessage(cliente, textMsg(`✅ *¡PAGO CONFIRMADO!*\n\nPedido #${s.folio}`));
+          await sendMessage(fromNumber, textMsg(`✅ *PAGO CONFIRMADO*\n\nCliente: ${formatearNumero(cliente)}`));
+          
+          s.step = "completado";
+          s.lastAction = now();
           return res.sendStatus(200);
         }
         
-        // PAGO CONFIRMADO (si tienes esta funcionalidad)
-        if (replyId.startsWith("pago_ok_")) {
-          // Aquí va tu código de pago confirmado
-          console.log("💰 Pago confirmado");
-          return res.sendStatus(200);
-        }
-        
-        // PAGO RECHAZADO (si tienes esta funcionalidad)
         if (replyId.startsWith("pago_no_")) {
-          // Aquí va tu código de pago rechazado
-          console.log("❌ Pago rechazado");
+          const partes = replyId.split("_");
+          const cliente = partes[2];
+          
+          if (sessions[cliente]) {
+            const s = sessions[cliente];
+            await sendMessage(cliente, textMsg(`❌ *PAGO RECHAZADO*\n\nPedido #${s.folio}\nContacta a la sucursal.`));
+            await sendMessage(fromNumber, textMsg(`❌ *PAGO RECHAZADO*\n\nCliente: ${formatearNumero(cliente)}`));
+            s.step = "completado";
+            s.lastAction = now();
+          }
           return res.sendStatus(200);
         }
       }
-      // CASO 3: NO ES NI CLIENTE NI SUCURSAL
       else {
-        console.log(`⚠️ Número ${fromNumber} no reconocido como cliente o sucursal`);
+        console.log(`⚠️ Número ${fromNumber} no reconocido`);
         return res.sendStatus(200);
       }
     }
-    // ==================== FIN DE LA PARTE CORREGIDA ====================
 
-    // ===== MANEJO NORMAL DEL FLUJO DEL BOT (para clientes) =====
+    // ===== MANEJO NORMAL DEL FLUJO DEL BOT =====
     const rawText = msg.text?.body;
     let input =
       msg.interactive?.button_reply?.id ||
@@ -853,11 +1012,7 @@ app.post("/webhook", async (req, res) => {
 
     if (input === "cancelar") {
       delete sessions[from];
-      await sendMessage(from, textMsg(
-        "❌ *PEDIDO CANCELADO*\n\n" +
-        "Tu pedido ha sido cancelado.\n" +
-        "Escribe *Hola* para comenzar de nuevo. 🍕"
-      ));
+      await sendMessage(from, textMsg("❌ *PEDIDO CANCELADO*\n\nEscribe *Hola* para comenzar de nuevo."));
       return res.sendStatus(200);
     }
 
@@ -1073,6 +1228,15 @@ app.post("/webhook", async (req, res) => {
         
         if (!sucursal.domicilio) {
           if (input === "recoger") {
+            // Verificar disponibilidad de recoger
+            const recogerDisp = recogerDisponible();
+            if (!recogerDisp.disponible) {
+              reply = merge(
+                textMsg(recogerDisp.mensaje),
+                textMsg("La tienda cierra a las 9:00 PM. Vuelve mañana. 🍕")
+              );
+              break;
+            }
             s.delivery = false;
             s.step = "ask_pickup_name";
             reply = textMsg("👤 *NOMBRE*\n\n¿Quién recogerá el pedido?");
@@ -1084,6 +1248,20 @@ app.post("/webhook", async (req, res) => {
           }
         } else {
           if (input === "domicilio") {
+            const domicilio = domicilioDisponible();
+            
+            if (!domicilio.disponible) {
+              const opciones = [
+                { id: "recoger", title: "🏪 Recoger en tienda" },
+                { id: "cancelar", title: "❌ Cancelar" }
+              ];
+              reply = merge(
+                textMsg(domicilio.mensaje),
+                buttons("¿Quieres recoger en tienda?", opciones)
+              );
+              break;
+            }
+            
             s.delivery = true;
             s.totalTemp = calcularTotal(s);
             
@@ -1096,6 +1274,14 @@ app.post("/webhook", async (req, res) => {
               reply = paymentOptions();
             }
           } else if (input === "recoger") {
+            const recogerDisp = recogerDisponible();
+            if (!recogerDisp.disponible) {
+              reply = merge(
+                textMsg(recogerDisp.mensaje),
+                textMsg("La tienda cierra a las 9:00 PM. Vuelve mañana. 🍕")
+              );
+              break;
+            }
             s.delivery = false;
             s.step = "ask_pickup_name";
             reply = textMsg("👤 *NOMBRE*\n\n¿Quién recogerá el pedido?");
@@ -1190,7 +1376,6 @@ app.post("/webhook", async (req, res) => {
           "Tu pedido ha sido enviado a la sucursal.\n" +
           "Espera la confirmación.\n\n" +
           "⏱️ *La sucursal tiene 1 hora para confirmar*\n" +
-          "Si no confirman, el pedido se cancelará automáticamente.\n\n" +
           "Te notificaremos cuando haya respuesta. ⏳"
         ));
         
@@ -1292,7 +1477,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// FUNCIONES UI (se mantienen igual)
+// FUNCIONES UI
 // =======================
 const seleccionarSucursal = () => {
   return buttons(
@@ -1446,14 +1631,27 @@ const anotherPizza = () => {
 const deliveryButtons = (s) => {
   const suc = SUCURSALES[s.sucursal];
   const opciones = [];
+  const domicilio = domicilioDisponible();
+  const recoger = recogerDisponible();
   
-  if (suc.domicilio) {
+  if (suc.domicilio && domicilio.disponible) {
     opciones.push({ id: "domicilio", title: "🚚 A domicilio (+$40)" });
   }
-  opciones.push({ id: "recoger", title: "🏪 Recoger en tienda" });
+  
+  if (recoger.disponible) {
+    opciones.push({ id: "recoger", title: "🏪 Recoger en tienda" });
+  }
+  
   opciones.push({ id: "cancelar", title: "❌ Cancelar" });
   
-  return buttons("🚚 *ENTREGA*", opciones);
+  let mensaje = "🚚 *ENTREGA*";
+  if (!domicilio.disponible && suc.domicilio && recoger.disponible) {
+    mensaje = "🚚 *ENTREGA* (Domicilio no disponible después de 8:20 PM)";
+  } else if (!recoger.disponible) {
+    mensaje = "🚚 *ENTREGA* (Recoger no disponible después de 8:50 PM)";
+  }
+  
+  return buttons(mensaje, opciones);
 };
 
 const paymentOptions = () => {
@@ -1823,16 +2021,18 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V23 (Botones CORREGIDOS - Clientes vs Sucursales) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V24 (Horarios MEJORADOS) corriendo en puerto ${PORT}`);
   console.log(`📅 Fecha actual del servidor: ${new Date().toDateString()}`);
   console.log(`📌 Folio actual: ${folioActual}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965 → ${formatearNumero("5216391946965")}`);
   console.log(`📱 Número de sucursal REVOLUCIÓN: 5216391283842 → ${formatearNumero("5216391283842")}`);
   console.log(`📱 Número de sucursal LA LABOR: 5216393992508 → ${formatearNumero("5216393992508")}`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
-  console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
+  console.log(`⏰ Sesión: 30 minutos (aviso a los 15 min)`);
   console.log(`🎁 Oferta especial: ${ofertaActiva() ? "ACTIVA" : "INACTIVA"}`);
   console.log(`⏰ Tiempo máximo para aceptar pedidos: 1 HORA`);
-  console.log(`🇲🇽 Horario: 11:00 AM - 9:00 PM (HORA MÉXICO)`);
+  console.log(`🇲🇽 Horario tienda: 11:00 AM - 9:00 PM`);
+  console.log(`🚚 Domicilio: hasta 8:20 PM`);
+  console.log(`🏪 Recoger: hasta 8:50 PM`);
   console.log(`✅ BOTONES CORREGIDOS: Clientes y sucursales diferenciados`);
 });
