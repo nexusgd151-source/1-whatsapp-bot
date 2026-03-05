@@ -818,92 +818,172 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
     
-    // ==================== MANEJO DE BOTONES (VERSIÓN SIMPLIFICADA) ====================
-    if (msg.type === "interactive" && msg.interactive?.button_reply) {
-      const replyId = msg.interactive.button_reply.id;
-      const fromNumber = msg.from;
-      const replyTitle = msg.interactive.button_reply.title;
+ // ==================== MANEJO DE BOTONES (VERSIÓN CORREGIDA) ====================
+if (msg.type === "interactive" && msg.interactive?.button_reply) {
+  const replyId = msg.interactive.button_reply.id;
+  const fromNumber = msg.from;
+  const replyTitle = msg.interactive.button_reply.title;
+  
+  console.log(`🔍 Botón presionado: ${replyId} (${replyTitle}) por ${fromNumber}`);
+  
+  // 🔥 PRIMERO: Verificar si es un CLIENTE con sesión activa
+  if (sessions[fromNumber]) {
+    console.log(`👤 Cliente ${fromNumber} presionó botón - será procesado en el flujo normal`);
+    // No hacemos return, dejamos que el flujo normal lo procese
+  }
+  // 🔥 SEGUNDO: Verificar si es una SUCURSAL (botones de aceptar/rechazar)
+  else if (replyId.startsWith("aceptar_") || replyId.startsWith("rechazar_") || 
+           replyId.startsWith("bloquear_") || replyId.startsWith("pago_")) {
+    
+    console.log(`🏪 Procesando como respuesta de SUCURSAL - ${replyId}`);
+    
+    // ===== ACEPTAR PEDIDO =====
+    if (replyId.startsWith("aceptar_")) {
+      const pedidoId = replyId.replace("aceptar_", "");
+      console.log(`✅ Procesando ACEPTACIÓN de pedido: ${pedidoId}`);
       
-      console.log(`🔍 Botón presionado: ${replyId} (${replyTitle}) por ${fromNumber}`);
+      let pedidoEncontrado = false;
+      let clienteEncontrado = null;
+      let sesionEncontrada = null;
       
-      // SIMPLIFICACIÓN: Cualquier botón que empiece con "aceptar_" será procesado
-      if (replyId.startsWith("aceptar_")) {
-        console.log("✅ BOTÓN ACEPTAR DETECTADO - Procesando...");
-        
-        const pedidoId = replyId.replace("aceptar_", "");
-        console.log(`   Pedido ID: ${pedidoId}`);
-        
-        // Buscar el pedido en las sesiones
-        let pedidoEncontrado = false;
-        let clienteEncontrado = null;
-        let sesionEncontrada = null;
-        
-        for (const [cliente, s] of Object.entries(sessions)) {
-          if (s.pedidoId === pedidoId) {
-            pedidoEncontrado = true;
-            clienteEncontrado = cliente;
-            sesionEncontrada = s;
-            console.log(`   ✅ Pedido encontrado! Cliente: ${cliente}, Folio: #${s.folio}`);
-            break;
-          }
+      for (const [cliente, s] of Object.entries(sessions)) {
+        if (s.pedidoId === pedidoId) {
+          pedidoEncontrado = true;
+          clienteEncontrado = cliente;
+          sesionEncontrada = s;
+          console.log(`   ✅ Pedido encontrado! Cliente: ${cliente}, Folio: #${s.folio}`);
+          break;
         }
-        
-        if (pedidoEncontrado && sesionEncontrada) {
-          const sucursalPedido = SUCURSALES[sesionEncontrada.sucursal];
-          const telefonoCliente = formatearNumero(clienteEncontrado);
-          const tiempoPrep = sesionEncontrada.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
-          
-          // ===== ENVIAR CONFIRMACIÓN AL CLIENTE =====
-          const mensajeCliente = 
-            `✅ *¡PEDIDO #${sesionEncontrada.folio} ACEPTADO!*\n\n` +
-            `🏪 *${sucursalPedido.nombre}*\n` +
-            `━━━━━━━━━━━━━━━━━━\n\n` +
-            `👤 *Cliente:* ${telefonoCliente}\n` +
-            `📋 *Pedido:* #${sesionEncontrada.folio}\n` +
-            `⏱️ *Tiempo estimado:* ${tiempoPrep}\n\n` +
-            `✨ ¡Gracias por tu preferencia!`;
-          
-          await sendMessage(clienteEncontrado, textMsg(mensajeCliente));
-          console.log(`📲 Confirmación enviada al cliente ${telefonoCliente}`);
-          
-          // ===== ENVIAR CONFIRMACIÓN A LA SUCURSAL =====
-          const mensajeSucursal = 
-            `✅ *PEDIDO #${sesionEncontrada.folio} ACEPTADO*\n` +
-            `━━━━━━━━━━━━━━━━━━\n\n` +
-            `🏪 *${sucursalPedido.nombre}*\n` +
-            `👤 *Cliente:* ${telefonoCliente}\n` +
-            `📋 *Pedido aceptado correctamente*\n\n` +
-            `🕒 ${moment().tz("America/Mexico_City").format('hh:mm A')}`;
-          
-          await sendMessage(fromNumber, textMsg(mensajeSucursal));
-          console.log(`📲 Confirmación enviada a la sucursal ${formatearNumero(fromNumber)}`);
-          
-          // Marcar como completado
-          sesionEncontrada.step = "completado";
-          sesionEncontrada.pagoProcesado = true;
-          sesionEncontrada.lastAction = now();
-          
-        } else {
-          console.log(`⚠️ Pedido no encontrado: ${pedidoId}`);
-          await sendMessage(fromNumber, textMsg(
-            "⚠️ *PEDIDO NO ENCONTRADO*\n\n" +
-            "El pedido ya no existe o expiró.\n" +
-            "Puede que haya sido cancelado automáticamente por tiempo."
-          ));
-        }
-        
-        return res.sendStatus(200);
       }
       
-      // Para otros botones, simplemente responder que fueron recibidos
-      console.log(`ℹ️ Otro botón presionado: ${replyId}`);
-      await sendMessage(fromNumber, textMsg(
-        `✅ Botón "${replyTitle}" recibido correctamente.`
-      ));
+      if (pedidoEncontrado && sesionEncontrada) {
+        const sucursalPedido = SUCURSALES[sesionEncontrada.sucursal];
+        const telefonoCliente = formatearNumero(clienteEncontrado);
+        const tiempoPrep = sesionEncontrada.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
+        
+        // Enviar confirmación al cliente
+        const mensajeCliente = 
+          `✅ *¡PEDIDO #${sesionEncontrada.folio} ACEPTADO!*\n\n` +
+          `🏪 *${sucursalPedido.nombre}*\n` +
+          `━━━━━━━━━━━━━━━━━━\n\n` +
+          `👤 *Cliente:* ${telefonoCliente}\n` +
+          `📋 *Pedido:* #${sesionEncontrada.folio}\n` +
+          `⏱️ *Tiempo estimado:* ${tiempoPrep}\n\n` +
+          `✨ ¡Gracias por tu preferencia!`;
+        
+        await sendMessage(clienteEncontrado, textMsg(mensajeCliente));
+        console.log(`📲 Confirmación enviada al cliente ${telefonoCliente}`);
+        
+        // Enviar confirmación a la sucursal
+        const mensajeSucursal = 
+          `✅ *PEDIDO #${sesionEncontrada.folio} ACEPTADO*\n` +
+          `━━━━━━━━━━━━━━━━━━\n\n` +
+          `🏪 *${sucursalPedido.nombre}*\n` +
+          `👤 *Cliente:* ${telefonoCliente}\n` +
+          `📋 *Pedido aceptado correctamente*\n\n` +
+          `🕒 ${moment().tz("America/Mexico_City").format('hh:mm A')}`;
+        
+        await sendMessage(fromNumber, textMsg(mensajeSucursal));
+        console.log(`📲 Confirmación enviada a la sucursal ${formatearNumero(fromNumber)}`);
+        
+        // Marcar como completado
+        sesionEncontrada.step = "completado";
+        sesionEncontrada.pagoProcesado = true;
+        sesionEncontrada.lastAction = now();
+        
+      } else {
+        console.log(`⚠️ Pedido no encontrado: ${pedidoId}`);
+        await sendMessage(fromNumber, textMsg(
+          "⚠️ *PEDIDO NO ENCONTRADO*\n\n" +
+          "El pedido ya no existe o expiró."
+        ));
+      }
       
       return res.sendStatus(200);
     }
-    // ==================== FIN MANEJO DE BOTONES ====================
+    
+    // ===== RECHAZAR PEDIDO =====
+    if (replyId.startsWith("rechazar_")) {
+      const pedidoId = replyId.replace("rechazar_", "");
+      console.log(`❌ Procesando RECHAZO de pedido: ${pedidoId}`);
+      
+      let pedidoEncontrado = false;
+      
+      for (const [cliente, s] of Object.entries(sessions)) {
+        if (s.pedidoId === pedidoId) {
+          pedidoEncontrado = true;
+          
+          const sucursalPedido = SUCURSALES[s.sucursal];
+          const telefonoCliente = formatearNumero(cliente);
+          
+          // Notificar al cliente
+          await sendMessage(cliente, textMsg(
+            `❌ *PEDIDO #${s.folio} RECHAZADO*\n\n` +
+            `🏪 *${sucursalPedido.nombre}*\n` +
+            `━━━━━━━━━━━━━━━━━━\n\n` +
+            `👤 *Cliente:* ${telefonoCliente}\n\n` +
+            `Lo sentimos, tu pedido no pudo ser aceptado.\n\n` +
+            `📞 Contacta: ${sucursalPedido.telefono}`
+          ));
+          
+          // Confirmar a la sucursal
+          await sendMessage(fromNumber, textMsg(
+            `❌ *PEDIDO #${s.folio} RECHAZADO*\n\n` +
+            `Cliente: ${telefonoCliente}`
+          ));
+          
+          s.step = "completado";
+          s.lastAction = now();
+          break;
+        }
+      }
+      
+      if (!pedidoEncontrado) {
+        await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe"));
+      }
+      
+      return res.sendStatus(200);
+    }
+    
+    // ===== BLOQUEAR CLIENTE =====
+    if (replyId.startsWith("bloquear_")) {
+      const numeroABloquear = replyId.replace("bloquear_", "");
+      console.log(`🚫 Bloqueando cliente: ${numeroABloquear}`);
+      blockedNumbers.add(numeroABloquear);
+      guardarBloqueados();
+      
+      await sendMessage(fromNumber, textMsg(`✅ Cliente ${formatearNumero(numeroABloquear)} bloqueado`));
+      try {
+        await sendMessage(numeroABloquear, textMsg("🚫 *HAS SIDO BLOQUEADO*"));
+      } catch (e) {}
+      
+      return res.sendStatus(200);
+    }
+    
+    // ===== PAGO CONFIRMADO =====
+    if (replyId.startsWith("pago_ok_")) {
+      console.log(`💰 Pago confirmado: ${replyId}`);
+      await sendMessage(fromNumber, textMsg("✅ Pago confirmado"));
+      return res.sendStatus(200);
+    }
+    
+    // ===== PAGO RECHAZADO =====
+    if (replyId.startsWith("pago_no_")) {
+      console.log(`❌ Pago rechazado: ${replyId}`);
+      await sendMessage(fromNumber, textMsg("❌ Pago rechazado"));
+      return res.sendStatus(200);
+    }
+  }
+  // 🔥 TERCERO: Cualquier otro botón no reconocido
+  else {
+    console.log(`❓ Botón no reconocido: ${replyId} de ${fromNumber}`);
+    await sendMessage(fromNumber, textMsg(
+      `❓ Botón "${replyTitle}" no reconocido`
+    ));
+    return res.sendStatus(200);
+  }
+}
+// ==================== FIN MANEJO DE BOTONES ====================
 
     // ===== MANEJO NORMAL DEL FLUJO DEL BOT (para clientes) =====
     const rawText = msg.text?.body;
