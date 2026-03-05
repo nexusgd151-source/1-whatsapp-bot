@@ -101,7 +101,7 @@ function guardarBloqueados() {
 }
 
 // =======================
-// 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL
+// 🎁 CONFIGURACIÓN DE OFERTA ESPECIA
 // =======================
 const OFERTA_ESPECIAL = {
   activa: true,
