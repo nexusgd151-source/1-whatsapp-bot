@@ -899,90 +899,134 @@ if (msg.type === "interactive" && msg.interactive?.button_reply) {
       return res.sendStatus(200);
     }
     
-    // ACEPTAR PEDIDO
-    if (replyId.startsWith("aceptar_")) {
-      const pedidoId = replyId.replace("aceptar_", "");
-      console.log(`✅ Procesando ACEPTACIÓN de pedido: ${pedidoId}`);
+  
+    // ACEPTAR PEDIDO (CON CONFIRMACIONES MEJORADAS)
+if (replyId.startsWith("aceptar_")) {
+  const pedidoId = replyId.replace("aceptar_", "");
+  console.log(`✅ Procesando ACEPTACIÓN de pedido: ${pedidoId}`);
+  
+  let pedidoEncontrado = false;
+  
+  for (const [cliente, s] of Object.entries(sessions)) {
+    if (s.pedidoId === pedidoId) {
+      pedidoEncontrado = true;
       
-      let pedidoEncontrado = false;
+      const sucursalPedido = SUCURSALES[s.sucursal];
+      const telefonoCliente = formatearNumero(cliente);
+      const telefonoSucursal = formatearNumero(fromNumber);
+      const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
       
-      for (const [cliente, s] of Object.entries(sessions)) {
-        if (s.pedidoId === pedidoId) {
-          pedidoEncontrado = true;
-          
-          const sucursalPedido = SUCURSALES[s.sucursal];
-          const telefonoFormateado = formatearNumero(cliente);
-          const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
-          
-          console.log(`✅ Pedido #${s.folio} aceptado - Cliente: ${telefonoFormateado}`);
-          
-          await sendMessage(cliente, textMsg(
-            `✅ *¡PEDIDO #${s.folio} ACEPTADO!*\n\n` +
-            `🏪 *${sucursalPedido.nombre}*\n\n` +
-            `👤 Cliente: ${telefonoFormateado}\n\n` +
-            `⏱️ Tiempo estimado: ${tiempoPrep}`
-          ));
-          
-          await sendMessage(fromNumber, textMsg(
-            `✅ *PEDIDO #${s.folio} ACEPTADO*\n\nCliente: ${telefonoFormateado}`
-          ));
-          
-          s.step = "completado";
-          s.pagoProcesado = true;
-          s.lastAction = now();
-          
-          break;
-        }
-      }
+      console.log(`✅ Pedido #${s.folio} aceptado por sucursal ${telefonoSucursal}`);
       
-      if (!pedidoEncontrado) {
-        console.log(`⚠️ Pedido no encontrado: ${pedidoId}`);
-        await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe o expiró"));
-      }
+      // ===== CONFIRMACIÓN PARA EL CLIENTE =====
+      const mensajeCliente = 
+        `✅ *¡PEDIDO #${s.folio} ACEPTADO!*\n\n` +
+        `🏪 *${sucursalPedido.nombre}*\n` +
+        `━━━━━━━━━━━━━━━━━━\n\n` +
+        `👤 *Cliente:* ${telefonoCliente}\n` +
+        `📋 *Pedido:* #${s.folio}\n` +
+        `⏱️ *Tiempo estimado:* ${tiempoPrep}\n\n` +
+        `✨ ¡Gracias por tu preferencia!`;
       
-      return res.sendStatus(200);
+      await sendMessage(cliente, textMsg(mensajeCliente));
+      console.log(`📲 Confirmación enviada al cliente ${telefonoCliente}`);
+      
+      // ===== CONFIRMACIÓN PARA LA SUCURSAL =====
+      const mensajeSucursal = 
+        `✅ *PEDIDO #${s.folio} ACEPTADO*\n` +
+        `━━━━━━━━━━━━━━━━━━\n\n` +
+        `🏪 *${sucursalPedido.nombre}*\n` +
+        `👤 *Cliente:* ${telefonoCliente}\n` +
+        `📋 *Pedido aceptado correctamente*\n\n` +
+        `🕒 ${moment().tz("America/Mexico_City").format('hh:mm A')}`;
+      
+      await sendMessage(fromNumber, textMsg(mensajeSucursal));
+      console.log(`📲 Confirmación enviada a la sucursal ${telefonoSucursal}`);
+      
+      // ===== TAMBIÉN ENVIAR CONFIRMACIÓN A LA OTRA SUCURSAL (opcional) =====
+      // Esto es por si quieres notificar a la otra sucursal
+      // await sendMessage(SUCURSALES.obrera.telefono, textMsg(`ℹ️ El pedido #${s.folio} fue aceptado por ${sucursalPedido.nombre}`));
+      
+      // Marcar el pedido como completado
+      s.step = "completado";
+      s.pagoProcesado = true;
+      s.lastAction = now();
+      
+      break;
     }
+  }
+  
+  if (!pedidoEncontrado) {
+    console.log(`⚠️ Pedido no encontrado: ${pedidoId}`);
+    await sendMessage(fromNumber, textMsg(
+      "⚠️ *PEDIDO NO ENCONTRADO*\n\n" +
+      "El pedido ya no existe o expiró.\n" +
+      "Puede que haya sido cancelado automáticamente por tiempo."
+    ));
+  }
+  
+  return res.sendStatus(200);
+}
     
-    // RECHAZAR PEDIDO
-    if (replyId.startsWith("rechazar_")) {
-      const pedidoId = replyId.replace("rechazar_", "");
-      console.log(`❌ Procesando RECHAZO de pedido: ${pedidoId}`);
+    
+ // RECHAZAR PEDIDO (CON CONFIRMACIONES MEJORADAS)
+if (replyId.startsWith("rechazar_")) {
+  const pedidoId = replyId.replace("rechazar_", "");
+  console.log(`❌ Procesando RECHAZO de pedido: ${pedidoId}`);
+  
+  let pedidoEncontrado = false;
+  
+  for (const [cliente, s] of Object.entries(sessions)) {
+    if (s.pedidoId === pedidoId) {
+      pedidoEncontrado = true;
       
-      let pedidoEncontrado = false;
+      const sucursalPedido = SUCURSALES[s.sucursal];
+      const telefonoCliente = formatearNumero(cliente);
+      const telefonoSucursal = formatearNumero(fromNumber);
       
-      for (const [cliente, s] of Object.entries(sessions)) {
-        if (s.pedidoId === pedidoId) {
-          pedidoEncontrado = true;
-          
-          const sucursalPedido = SUCURSALES[s.sucursal];
-          const telefonoFormateado = formatearNumero(cliente);
-          
-          console.log(`❌ Pedido #${s.folio} rechazado - Cliente: ${telefonoFormateado}`);
-          
-          await sendMessage(cliente, textMsg(
-            "❌ *PEDIDO RECHAZADO*\n\n" +
-            `🏪 *${sucursalPedido.nombre}*\n\n` +
-            `📋 Pedido: #${s.folio}\n` +
-            `👤 Cliente: ${telefonoFormateado}\n\n` +
-            `📞 Contacta: ${sucursalPedido.telefono}`
-          ));
-          
-          await sendMessage(fromNumber, textMsg(
-            `❌ *PEDIDO #${s.folio} RECHAZADO*\n\nCliente: ${telefonoFormateado}`
-          ));
-          
-          s.step = "completado";
-          s.lastAction = now();
-          break;
-        }
-      }
+      console.log(`❌ Pedido #${s.folio} rechazado por sucursal ${telefonoSucursal}`);
       
-      if (!pedidoEncontrado) {
-        await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe o expiró"));
-      }
+      // ===== NOTIFICACIÓN PARA EL CLIENTE =====
+      const mensajeCliente = 
+        `❌ *PEDIDO #${s.folio} RECHAZADO*\n\n` +
+        `🏪 *${sucursalPedido.nombre}*\n` +
+        `━━━━━━━━━━━━━━━━━━\n\n` +
+        `👤 *Cliente:* ${telefonoCliente}\n\n` +
+        `Lo sentimos, tu pedido no pudo ser aceptado.\n\n` +
+        `📞 *Contacta a la sucursal:*\n` +
+        `${sucursalPedido.telefono}`;
       
-      return res.sendStatus(200);
+      await sendMessage(cliente, textMsg(mensajeCliente));
+      console.log(`📲 Notificación enviada al cliente ${telefonoCliente}`);
+      
+      // ===== CONFIRMACIÓN PARA LA SUCURSAL =====
+      const mensajeSucursal = 
+        `❌ *PEDIDO #${s.folio} RECHAZADO*\n` +
+        `━━━━━━━━━━━━━━━━━━\n\n` +
+        `🏪 *${sucursalPedido.nombre}*\n` +
+        `👤 *Cliente:* ${telefonoCliente}\n\n` +
+        `✅ El cliente ha sido notificado.\n\n` +
+        `🕒 ${moment().tz("America/Mexico_City").format('hh:mm A')}`;
+      
+      await sendMessage(fromNumber, textMsg(mensajeSucursal));
+      console.log(`📲 Confirmación enviada a la sucursal ${telefonoSucursal}`);
+      
+      // Marcar como completado
+      s.step = "completado";
+      s.lastAction = now();
+      break;
     }
+  }
+  
+  if (!pedidoEncontrado) {
+    await sendMessage(fromNumber, textMsg(
+      "⚠️ *PEDIDO NO ENCONTRADO*\n\n" +
+      "El pedido ya no existe o expiró."
+    ));
+  }
+  
+  return res.sendStatus(200);
+}
     
     // PAGO CONFIRMADO
     if (replyId.startsWith("pago_ok_")) {
