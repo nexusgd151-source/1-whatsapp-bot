@@ -696,35 +696,114 @@ app.post("/webhook", async (req, res) => {
     }
 
     // 🔥 DETECTAR IMAGEN (COMPROBANTE)
-    if (msg.type === "image" || msg.type === "document") {
-      console.log("🔥🔥🔥 IMAGEN DETECTADA 🔥🔥🔥");
-      
-      if (!sessions[from]) {
-        await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
-        return res.sendStatus(200);
-      }
-      
-      const s = sessions[from];
-      
-      if (!s.sucursal) {
-        await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
-        return res.sendStatus(200);
-      }
-      
-      const sucursal = SUCURSALES[s.sucursal];
-      
-      if (s.step !== "ask_comprobante") {
-        await sendMessage(from, textMsg(
-          "❌ *ERROR*\n\nNo estamos esperando un comprobante en este momento."
-        ));
-        return res.sendStatus(200);
-      }
-      
-      // Aquí va el código de manejo de imágenes (lo tienes en tu código original)
-      // Por brevedad, mantén tu código de imágenes aquí
-      
+// 🔥 DETECTAR IMAGEN (COMPROBANTE)
+if (msg.type === "image" || msg.type === "document") {
+  console.log("🔥🔥🔥 IMAGEN DETECTADA 🔥🔥🔥");
+  
+  if (!sessions[from]) {
+    await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
+    return res.sendStatus(200);
+  }
+  
+  const s = sessions[from];
+  
+  if (!s.sucursal) {
+    await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
+    return res.sendStatus(200);
+  }
+  
+  const sucursal = SUCURSALES[s.sucursal];
+  
+  if (s.step !== "ask_comprobante") {
+    await sendMessage(from, textMsg(
+      "❌ *ERROR*\n\nNo estamos esperando un comprobante en este momento."
+    ));
+    return res.sendStatus(200);
+  }
+  
+  if (s.comprobanteCount >= 1) {
+    await sendMessage(from, textMsg("⚠️ Ya recibimos tu comprobante. Espera verificación."));
+    return res.sendStatus(200);
+  }
+  
+  s.comprobanteCount++;
+  s.lastAction = now();
+  s.warningSent = false;
+  
+  await sendMessage(from, textMsg("✅ *COMPROBANTE RECIBIDO*\n\nLo estamos verificando..."));
+  
+  let imageId = null;
+  let mimeType = null;
+  
+  if (msg.type === "image") {
+    imageId = msg.image.id;
+    mimeType = msg.image.mime_type || "image/jpeg";
+  } else if (msg.type === "document") {
+    if (msg.document.mime_type?.startsWith("image/")) {
+      imageId = msg.document.id;
+      mimeType = msg.document.mime_type;
+    } else {
+      await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
       return res.sendStatus(200);
     }
+  }
+  
+  if (!imageId) {
+    await sendMessage(from, textMsg("❌ Error al procesar la imagen. Intenta de nuevo."));
+    return res.sendStatus(200);
+  }
+  
+  const timestamp = Date.now();
+  const random = Math.floor(Math.random() * 1000);
+  const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
+  s.pagoId = pagoId;
+  
+  const ahoraMexico = moment().tz("America/Mexico_City");
+  const horaActual = ahoraMexico.format('hh:mm A');
+  const telefonoFormateado = formatearNumero(from);
+  
+  const caption = 
+    `🖼️ *COMPROBANTE DE PAGO*\n` +
+    `━━━━━━━━━━━━━━━━━━\n\n` +
+    `🏪 *${sucursal.nombre}*\n` +
+    `👤 *Cliente:* ${telefonoFormateado}\n` +
+    `💰 *Monto:* $${s.totalTemp} MXN\n` +
+    `⏰ *Hora:* ${horaActual} (México)`;
+  
+  try {
+    // Intentar reenviar la imagen directamente
+    await sendMessage(sucursal.telefono, {
+      type: "image",
+      image: { id: imageId, caption: caption }
+    });
+  } catch (error) {
+    // Si falla, enviar mensaje de texto
+    await sendMessage(sucursal.telefono, textMsg(
+      `⚠️ *COMPROBANTE DE ${telefonoFormateado}*\nMonto: $${s.totalTemp}\n(Imagen no pudo ser reenviada automáticamente)`
+    ));
+  }
+  
+  // Enviar botones a la sucursal para confirmar/rechazar
+  await sendMessage(sucursal.telefono, {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: `🔍 *VERIFICAR PAGO - $${s.totalTemp}* (${horaActual})` },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: `pago_ok_${pagoId}`, title: "✅ CONFIRMAR" } },
+          { type: "reply", reply: { id: `pago_no_${pagoId}`, title: "❌ RECHAZAR" } },
+          { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
+        ]
+      }
+    }
+  });
+  
+  s.comprobanteEnviado = true;
+  s.step = "esperando_confirmacion";
+  
+  return res.sendStatus(200);
+}
     
     // ==================== MANEJO DE BOTONES ====================
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
