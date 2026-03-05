@@ -104,7 +104,7 @@ function guardarBloqueados() {
 // 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL
 // =======================
 const OFERTA_ESPECIAL = {
-  activa: false,
+  activa: true,
   nombre: "Pepperoni Grande $100",
   pizza: "pepperoni",
   tamaño: "grande",
@@ -801,210 +801,249 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
     
-    // ==================== MANEJO DE BOTONES (CORREGIDO PARA SUCURSALES) ====================
-    if (msg.type === "interactive" && msg.interactive?.button_reply) {
-      const replyId = msg.interactive.button_reply.id;
-      const fromNumber = msg.from;
-      const replyTitle = msg.interactive.button_reply.title;
-      
-      console.log(`🔍 Botón presionado: ${replyId} (${replyTitle}) por ${fromNumber}`);
-      
-      // ===== NORMALIZAR NÚMEROS PARA COMPARAR =====
-      const normalizarParaComparar = (num) => {
-        if (!num) return num;
-        const str = String(num);
-        if (str.startsWith('521')) return str.substring(3);
-        if (str.startsWith('52')) return str.substring(2);
-        return str;
-      };
+    // ==================== MANEJO DE BOTONES (CORREGIDO - VERSIÓN DEFINITIVA) ====================
+if (msg.type === "interactive" && msg.interactive?.button_reply) {
+  const replyId = msg.interactive.button_reply.id;
+  const fromNumber = msg.from;
+  const replyTitle = msg.interactive.button_reply.title;
+  
+  console.log(`🔍 Botón presionado: ${replyId} (${replyTitle}) por ${fromNumber}`);
+  console.log(`🔍 Número ORIGINAL recibido: "${fromNumber}"`);
+  
+  // ===== NORMALIZACIÓN EXTREMA =====
+  // Función para limpiar el número COMPLETAMENTE
+  const limpiarNumero = (num) => {
+    if (!num) return '';
+    
+    // Convertir a string y quitar todo lo que no sean dígitos
+    let limpio = String(num).replace(/\D/g, '');
+    
+    console.log(`   → Después de limpiar dígitos: "${limpio}"`);
+    
+    // Si empieza con 52 (código de México), quitarlo
+    if (limpio.startsWith('52')) {
+      limpio = limpio.substring(2);
+      console.log(`   → Después de quitar 52: "${limpio}"`);
+    }
+    
+    // Si después de quitar 52 aún empieza con 1 (algunos casos), quitarlo
+    if (limpio.startsWith('1')) {
+      limpio = limpio.substring(1);
+      console.log(`   → Después de quitar 1: "${limpio}"`);
+    }
+    
+    // Asegurar que sea de 10 dígitos (tomar los últimos 10)
+    if (limpio.length > 10) {
+      limpio = limpio.slice(-10);
+      console.log(`   → Tomando últimos 10 dígitos: "${limpio}"`);
+    }
+    
+    return limpio;
+  };
 
-      const fromNormalizado = normalizarParaComparar(fromNumber);
-      const esSucursal = Object.values(SUCURSALES).some(s => 
-        normalizarParaComparar(s.telefono) === fromNormalizado
-      );
-      const esCliente = sessions[fromNumber] ? true : false;
+  // Limpiar el número que presionó el botón
+  const fromLimpio = limpiarNumero(fromNumber);
+  console.log(`📞 Número del que presiona: ${fromNumber} → Limpio: ${fromLimpio}`);
+  
+  // Verificar si es sucursal (comparando números limpios)
+  let esSucursal = false;
+  let sucursalEncontrada = null;
+  
+  for (const [key, suc] of Object.entries(SUCURSALES)) {
+    const sucursalLimpio = limpiarNumero(suc.telefono);
+    console.log(`   Comparando con ${key}: ${suc.telefono} → Limpio: ${sucursalLimpio}`);
+    
+    if (sucursalLimpio === fromLimpio) {
+      esSucursal = true;
+      sucursalEncontrada = suc;
+      console.log(`   ✅ ¡COINCIDENCIA! Es la sucursal ${key}`);
+      break;
+    }
+  }
+  
+  const esCliente = sessions[fromNumber] ? true : false;
+  
+  console.log(`📊 Resultado final: esCliente=${esCliente}, esSucursal=${esSucursal}`);
+  
+  // CASO 1: ES CLIENTE
+  if (esCliente) {
+    console.log(`👤 Cliente ${fromNumber} presionó botón, será procesado en el flujo normal`);
+    // No hacemos return, dejamos que el flujo normal lo maneje
+  }
+  // CASO 2: ES SUCURSAL
+  else if (esSucursal) {
+    console.log(`🏪 SUCURSAL ${fromNumber} (${sucursalEncontrada.nombre}) respondió - Procesando...`);
+    
+    // BLOQUEAR CLIENTE
+    if (replyId.startsWith("bloquear_")) {
+      const numeroABloquear = replyId.replace("bloquear_", "");
+      console.log(`🚫 Bloqueando cliente: ${numeroABloquear}`);
+      blockedNumbers.add(numeroABloquear);
+      guardarBloqueados();
       
-      console.log(`📞 Número original: ${fromNumber} -> Normalizado: ${fromNormalizado}`);
-      console.log(`📊 Resultado: esCliente=${esCliente}, esSucursal=${esSucursal}`);
-      
-      // CASO 1: ES CLIENTE
-      if (esCliente) {
-        console.log(`👤 Cliente ${fromNumber} presionó botón, será procesado en el flujo normal`);
-        // No hacemos return, dejamos que el flujo normal lo maneje
+      await sendMessage(fromNumber, textMsg(`✅ Cliente ${formatearNumero(numeroABloquear)} bloqueado`));
+      try {
+        await sendMessage(numeroABloquear, textMsg("🚫 *HAS SIDO BLOQUEADO*"));
+      } catch (e) {}
+      return res.sendStatus(200);
+    }
+    
+    // DESBLOQUEAR CLIENTE
+    if (replyId.startsWith("desbloquear_")) {
+      const numeroADesbloquear = replyId.replace("desbloquear_", "");
+      if (blockedNumbers.has(numeroADesbloquear)) {
+        blockedNumbers.delete(numeroADesbloquear);
+        guardarBloqueados();
+        await sendMessage(fromNumber, textMsg(`✅ Cliente ${formatearNumero(numeroADesbloquear)} desbloqueado`));
       }
-      // CASO 2: ES SUCURSAL
-      else if (esSucursal) {
-        console.log(`🏪 SUCURSAL ${fromNumber} respondió - Procesando...`);
-        
-        // BLOQUEAR CLIENTE
-        if (replyId.startsWith("bloquear_")) {
-          const numeroABloquear = replyId.replace("bloquear_", "");
-          console.log(`🚫 Bloqueando cliente: ${numeroABloquear}`);
-          blockedNumbers.add(numeroABloquear);
-          guardarBloqueados();
+      return res.sendStatus(200);
+    }
+    
+    // ACEPTAR PEDIDO
+    if (replyId.startsWith("aceptar_")) {
+      const pedidoId = replyId.replace("aceptar_", "");
+      console.log(`✅ Procesando ACEPTACIÓN de pedido: ${pedidoId}`);
+      
+      let pedidoEncontrado = false;
+      
+      for (const [cliente, s] of Object.entries(sessions)) {
+        if (s.pedidoId === pedidoId) {
+          pedidoEncontrado = true;
           
-          await sendMessage(fromNumber, textMsg(`✅ Cliente ${formatearNumero(numeroABloquear)} bloqueado`));
-          try {
-            await sendMessage(numeroABloquear, textMsg("🚫 *HAS SIDO BLOQUEADO*"));
-          } catch (e) {}
-          return res.sendStatus(200);
-        }
-        
-        // DESBLOQUEAR CLIENTE
-        if (replyId.startsWith("desbloquear_")) {
-          const numeroADesbloquear = replyId.replace("desbloquear_", "");
-          if (blockedNumbers.has(numeroADesbloquear)) {
-            blockedNumbers.delete(numeroADesbloquear);
-            guardarBloqueados();
-            await sendMessage(fromNumber, textMsg(`✅ Cliente ${formatearNumero(numeroADesbloquear)} desbloqueado`));
-          }
-          return res.sendStatus(200);
-        }
-        
-        // ACEPTAR PEDIDO
-        if (replyId.startsWith("aceptar_")) {
-          const pedidoId = replyId.replace("aceptar_", "");
-          console.log(`✅ Procesando ACEPTACIÓN de pedido: ${pedidoId}`);
+          const sucursalPedido = SUCURSALES[s.sucursal];
+          const telefonoFormateado = formatearNumero(cliente);
+          const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
           
-          let pedidoEncontrado = false;
+          console.log(`✅ Pedido #${s.folio} aceptado - Cliente: ${telefonoFormateado}`);
           
-          for (const [cliente, s] of Object.entries(sessions)) {
-            if (s.pedidoId === pedidoId) {
-              pedidoEncontrado = true;
-              
-              const sucursalPedido = SUCURSALES[s.sucursal];
-              const telefonoFormateado = formatearNumero(cliente);
-              const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
-              
-              console.log(`✅ Pedido #${s.folio} aceptado - Cliente: ${telefonoFormateado}`);
-              
-              await sendMessage(cliente, textMsg(
-                `✅ *¡PEDIDO #${s.folio} ACEPTADO!*\n\n` +
-                `🏪 *${sucursalPedido.nombre}*\n\n` +
-                `👤 Cliente: ${telefonoFormateado}\n\n` +
-                `⏱️ Tiempo estimado: ${tiempoPrep}`
-              ));
-              
-              await sendMessage(fromNumber, textMsg(
-                `✅ *PEDIDO #${s.folio} ACEPTADO*\n\nCliente: ${telefonoFormateado}`
-              ));
-              
-              s.step = "completado";
-              s.pagoProcesado = true;
-              s.lastAction = now();
-              
-              break;
-            }
-          }
+          await sendMessage(cliente, textMsg(
+            `✅ *¡PEDIDO #${s.folio} ACEPTADO!*\n\n` +
+            `🏪 *${sucursalPedido.nombre}*\n\n` +
+            `👤 Cliente: ${telefonoFormateado}\n\n` +
+            `⏱️ Tiempo estimado: ${tiempoPrep}`
+          ));
           
-          if (!pedidoEncontrado) {
-            console.log(`⚠️ Pedido no encontrado: ${pedidoId}`);
-            await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe o expiró"));
-          }
+          await sendMessage(fromNumber, textMsg(
+            `✅ *PEDIDO #${s.folio} ACEPTADO*\n\nCliente: ${telefonoFormateado}`
+          ));
           
-          return res.sendStatus(200);
-        }
-        
-        // RECHAZAR PEDIDO
-        if (replyId.startsWith("rechazar_")) {
-          const pedidoId = replyId.replace("rechazar_", "");
-          console.log(`❌ Procesando RECHAZO de pedido: ${pedidoId}`);
-          
-          let pedidoEncontrado = false;
-          
-          for (const [cliente, s] of Object.entries(sessions)) {
-            if (s.pedidoId === pedidoId) {
-              pedidoEncontrado = true;
-              
-              const sucursalPedido = SUCURSALES[s.sucursal];
-              const telefonoFormateado = formatearNumero(cliente);
-              
-              console.log(`❌ Pedido #${s.folio} rechazado - Cliente: ${telefonoFormateado}`);
-              
-              await sendMessage(cliente, textMsg(
-                "❌ *PEDIDO RECHAZADO*\n\n" +
-                `🏪 *${sucursalPedido.nombre}*\n\n` +
-                `📋 Pedido: #${s.folio}\n` +
-                `👤 Cliente: ${telefonoFormateado}\n\n` +
-                `📞 Contacta: ${sucursalPedido.telefono}`
-              ));
-              
-              await sendMessage(fromNumber, textMsg(
-                `❌ *PEDIDO #${s.folio} RECHAZADO*\n\nCliente: ${telefonoFormateado}`
-              ));
-              
-              s.step = "completado";
-              s.lastAction = now();
-              break;
-            }
-          }
-          
-          if (!pedidoEncontrado) {
-            await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe o expiró"));
-          }
-          
-          return res.sendStatus(200);
-        }
-        
-        // PAGO CONFIRMADO
-        if (replyId.startsWith("pago_ok_")) {
-          const partes = replyId.split("_");
-          const cliente = partes[2];
-          const sucursalKey = partes[3];
-          
-          console.log(`💰 Confirmando pago de cliente: ${cliente}`);
-          
-          if (!sessions[cliente]) {
-            await sendMessage(fromNumber, textMsg("⚠️ Cliente no encontrado"));
-            return res.sendStatus(200);
-          }
-          
-          const s = sessions[cliente];
-          if (s.pagoProcesado) {
-            await sendMessage(fromNumber, textMsg("⚠️ Pago ya procesado"));
-            return res.sendStatus(200);
-          }
-          
+          s.step = "completado";
           s.pagoProcesado = true;
+          s.lastAction = now();
           
-          if (!s.resumenEnviado) {
-            await sendMessage(cliente, buildClienteSummary(s));
-            await sendMessage(SUCURSALES[sucursalKey].telefono, buildNegocioSummary(s));
-            s.resumenEnviado = true;
-          }
+          break;
+        }
+      }
+      
+      if (!pedidoEncontrado) {
+        console.log(`⚠️ Pedido no encontrado: ${pedidoId}`);
+        await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe o expiró"));
+      }
+      
+      return res.sendStatus(200);
+    }
+    
+    // RECHAZAR PEDIDO
+    if (replyId.startsWith("rechazar_")) {
+      const pedidoId = replyId.replace("rechazar_", "");
+      console.log(`❌ Procesando RECHAZO de pedido: ${pedidoId}`);
+      
+      let pedidoEncontrado = false;
+      
+      for (const [cliente, s] of Object.entries(sessions)) {
+        if (s.pedidoId === pedidoId) {
+          pedidoEncontrado = true;
           
-          await sendMessage(cliente, textMsg(`✅ *¡PAGO CONFIRMADO!*\n\nPedido #${s.folio}`));
-          await sendMessage(fromNumber, textMsg(`✅ *PAGO CONFIRMADO*\n\nCliente: ${formatearNumero(cliente)}`));
+          const sucursalPedido = SUCURSALES[s.sucursal];
+          const telefonoFormateado = formatearNumero(cliente);
+          
+          console.log(`❌ Pedido #${s.folio} rechazado - Cliente: ${telefonoFormateado}`);
+          
+          await sendMessage(cliente, textMsg(
+            "❌ *PEDIDO RECHAZADO*\n\n" +
+            `🏪 *${sucursalPedido.nombre}*\n\n` +
+            `📋 Pedido: #${s.folio}\n` +
+            `👤 Cliente: ${telefonoFormateado}\n\n` +
+            `📞 Contacta: ${sucursalPedido.telefono}`
+          ));
+          
+          await sendMessage(fromNumber, textMsg(
+            `❌ *PEDIDO #${s.folio} RECHAZADO*\n\nCliente: ${telefonoFormateado}`
+          ));
           
           s.step = "completado";
           s.lastAction = now();
-          return res.sendStatus(200);
-        }
-        
-        // PAGO RECHAZADO
-        if (replyId.startsWith("pago_no_")) {
-          const partes = replyId.split("_");
-          const cliente = partes[2];
-          
-          console.log(`❌ Rechazando pago de cliente: ${cliente}`);
-          
-          if (sessions[cliente]) {
-            const s = sessions[cliente];
-            await sendMessage(cliente, textMsg(`❌ *PAGO RECHAZADO*\n\nPedido #${s.folio}\nContacta a la sucursal.`));
-            await sendMessage(fromNumber, textMsg(`❌ *PAGO RECHAZADO*\n\nCliente: ${formatearNumero(cliente)}`));
-            s.step = "completado";
-            s.lastAction = now();
-          }
-          return res.sendStatus(200);
+          break;
         }
       }
-      // CASO 3: NO RECONOCIDO
-      else {
-        console.log(`⚠️ Número ${fromNumber} no reconocido como cliente ni sucursal`);
+      
+      if (!pedidoEncontrado) {
+        await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe o expiró"));
+      }
+      
+      return res.sendStatus(200);
+    }
+    
+    // PAGO CONFIRMADO
+    if (replyId.startsWith("pago_ok_")) {
+      const partes = replyId.split("_");
+      const cliente = partes[2];
+      const sucursalKey = partes[3];
+      
+      console.log(`💰 Confirmando pago de cliente: ${cliente}`);
+      
+      if (!sessions[cliente]) {
+        await sendMessage(fromNumber, textMsg("⚠️ Cliente no encontrado"));
         return res.sendStatus(200);
       }
+      
+      const s = sessions[cliente];
+      if (s.pagoProcesado) {
+        await sendMessage(fromNumber, textMsg("⚠️ Pago ya procesado"));
+        return res.sendStatus(200);
+      }
+      
+      s.pagoProcesado = true;
+      
+      if (!s.resumenEnviado) {
+        await sendMessage(cliente, buildClienteSummary(s));
+        await sendMessage(SUCURSALES[sucursalKey].telefono, buildNegocioSummary(s));
+        s.resumenEnviado = true;
+      }
+      
+      await sendMessage(cliente, textMsg(`✅ *¡PAGO CONFIRMADO!*\n\nPedido #${s.folio}`));
+      await sendMessage(fromNumber, textMsg(`✅ *PAGO CONFIRMADO*\n\nCliente: ${formatearNumero(cliente)}`));
+      
+      s.step = "completado";
+      s.lastAction = now();
+      return res.sendStatus(200);
     }
-    // ==================== FIN MANEJO DE BOTONES ====================
+    
+    // PAGO RECHAZADO
+    if (replyId.startsWith("pago_no_")) {
+      const partes = replyId.split("_");
+      const cliente = partes[2];
+      
+      console.log(`❌ Rechazando pago de cliente: ${cliente}`);
+      
+      if (sessions[cliente]) {
+        const s = sessions[cliente];
+        await sendMessage(cliente, textMsg(`❌ *PAGO RECHAZADO*\n\nPedido #${s.folio}\nContacta a la sucursal.`));
+        await sendMessage(fromNumber, textMsg(`❌ *PAGO RECHAZADO*\n\nCliente: ${formatearNumero(cliente)}`));
+        s.step = "completado";
+        s.lastAction = now();
+      }
+      return res.sendStatus(200);
+    }
+  }
+  // CASO 3: NO RECONOCIDO
+  else {
+    console.log(`⚠️ Número ${fromNumber} no reconocido como cliente ni sucursal`);
+    console.log(`⚠️ El número limpio ${fromLimpio} no coincide con ninguna sucursal`);
+    return res.sendStatus(200);
+  }
+}
+// ==================== FIN MANEJO DE BOTONES ====================
 
     // ===== MANEJO NORMAL DEL FLUJO DEL BOT =====
     const rawText = msg.text?.body;
