@@ -104,7 +104,7 @@ function guardarBloqueados() {
 // 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL
 // =======================
 const OFERTA_ESPECIAL = {
-  activa: true,
+  activa: false,
   nombre: "Pepperoni Grande $100",
   pizza: "pepperoni",
   tamaño: "grande",
@@ -641,7 +641,7 @@ const confirmarOferta = () => {
 };
 
 // =======================
-// WEBHOOK - POST
+// WEBHOOK - POST (VERSIÓN COMPLETA Y CORREGIDA)
 // =======================
 app.post("/webhook", async (req, res) => {
   try {
@@ -696,116 +696,112 @@ app.post("/webhook", async (req, res) => {
     }
 
     // 🔥 DETECTAR IMAGEN (COMPROBANTE)
-// 🔥 DETECTAR IMAGEN (COMPROBANTE)
-if (msg.type === "image" || msg.type === "document") {
-  console.log("🔥🔥🔥 IMAGEN DETECTADA 🔥🔥🔥");
-  
-  if (!sessions[from]) {
-    await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
-    return res.sendStatus(200);
-  }
-  
-  const s = sessions[from];
-  
-  if (!s.sucursal) {
-    await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
-    return res.sendStatus(200);
-  }
-  
-  const sucursal = SUCURSALES[s.sucursal];
-  
-  if (s.step !== "ask_comprobante") {
-    await sendMessage(from, textMsg(
-      "❌ *ERROR*\n\nNo estamos esperando un comprobante en este momento."
-    ));
-    return res.sendStatus(200);
-  }
-  
-  if (s.comprobanteCount >= 1) {
-    await sendMessage(from, textMsg("⚠️ Ya recibimos tu comprobante. Espera verificación."));
-    return res.sendStatus(200);
-  }
-  
-  s.comprobanteCount++;
-  s.lastAction = now();
-  s.warningSent = false;
-  
-  await sendMessage(from, textMsg("✅ *COMPROBANTE RECIBIDO*\n\nLo estamos verificando..."));
-  
-  let imageId = null;
-  let mimeType = null;
-  
-  if (msg.type === "image") {
-    imageId = msg.image.id;
-    mimeType = msg.image.mime_type || "image/jpeg";
-  } else if (msg.type === "document") {
-    if (msg.document.mime_type?.startsWith("image/")) {
-      imageId = msg.document.id;
-      mimeType = msg.document.mime_type;
-    } else {
-      await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
+    if (msg.type === "image" || msg.type === "document") {
+      console.log("🔥🔥🔥 IMAGEN DETECTADA 🔥🔥🔥");
+      
+      if (!sessions[from]) {
+        await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
+        return res.sendStatus(200);
+      }
+      
+      const s = sessions[from];
+      
+      if (!s.sucursal) {
+        await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
+        return res.sendStatus(200);
+      }
+      
+      const sucursal = SUCURSALES[s.sucursal];
+      
+      if (s.step !== "ask_comprobante") {
+        await sendMessage(from, textMsg(
+          "❌ *ERROR*\n\nNo estamos esperando un comprobante en este momento."
+        ));
+        return res.sendStatus(200);
+      }
+      
+      if (s.comprobanteCount >= 1) {
+        await sendMessage(from, textMsg("⚠️ Ya recibimos tu comprobante. Espera verificación."));
+        return res.sendStatus(200);
+      }
+      
+      s.comprobanteCount++;
+      s.lastAction = now();
+      s.warningSent = false;
+      
+      await sendMessage(from, textMsg("✅ *COMPROBANTE RECIBIDO*\n\nLo estamos verificando..."));
+      
+      let imageId = null;
+      let mimeType = null;
+      
+      if (msg.type === "image") {
+        imageId = msg.image.id;
+        mimeType = msg.image.mime_type || "image/jpeg";
+      } else if (msg.type === "document") {
+        if (msg.document.mime_type?.startsWith("image/")) {
+          imageId = msg.document.id;
+          mimeType = msg.document.mime_type;
+        } else {
+          await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
+          return res.sendStatus(200);
+        }
+      }
+      
+      if (!imageId) {
+        await sendMessage(from, textMsg("❌ Error al procesar la imagen. Intenta de nuevo."));
+        return res.sendStatus(200);
+      }
+      
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 1000);
+      const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
+      s.pagoId = pagoId;
+      
+      const ahoraMexico = moment().tz("America/Mexico_City");
+      const horaActual = ahoraMexico.format('hh:mm A');
+      const telefonoFormateado = formatearNumero(from);
+      
+      const caption = 
+        `🖼️ *COMPROBANTE DE PAGO*\n` +
+        `━━━━━━━━━━━━━━━━━━\n\n` +
+        `🏪 *${sucursal.nombre}*\n` +
+        `👤 *Cliente:* ${telefonoFormateado}\n` +
+        `💰 *Monto:* $${s.totalTemp} MXN\n` +
+        `⏰ *Hora:* ${horaActual} (México)`;
+      
+      try {
+        await sendMessage(sucursal.telefono, {
+          type: "image",
+          image: { id: imageId, caption: caption }
+        });
+      } catch (error) {
+        await sendMessage(sucursal.telefono, textMsg(
+          `⚠️ *COMPROBANTE DE ${telefonoFormateado}*\nMonto: $${s.totalTemp}\n(Imagen no pudo ser reenviada automáticamente)`
+        ));
+      }
+      
+      await sendMessage(sucursal.telefono, {
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: `🔍 *VERIFICAR PAGO - $${s.totalTemp}* (${horaActual})` },
+          action: {
+            buttons: [
+              { type: "reply", reply: { id: `pago_ok_${pagoId}`, title: "✅ CONFIRMAR" } },
+              { type: "reply", reply: { id: `pago_no_${pagoId}`, title: "❌ RECHAZAR" } },
+              { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
+            ]
+          }
+        }
+      });
+      
+      s.comprobanteEnviado = true;
+      s.step = "esperando_confirmacion";
+      
       return res.sendStatus(200);
     }
-  }
-  
-  if (!imageId) {
-    await sendMessage(from, textMsg("❌ Error al procesar la imagen. Intenta de nuevo."));
-    return res.sendStatus(200);
-  }
-  
-  const timestamp = Date.now();
-  const random = Math.floor(Math.random() * 1000);
-  const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
-  s.pagoId = pagoId;
-  
-  const ahoraMexico = moment().tz("America/Mexico_City");
-  const horaActual = ahoraMexico.format('hh:mm A');
-  const telefonoFormateado = formatearNumero(from);
-  
-  const caption = 
-    `🖼️ *COMPROBANTE DE PAGO*\n` +
-    `━━━━━━━━━━━━━━━━━━\n\n` +
-    `🏪 *${sucursal.nombre}*\n` +
-    `👤 *Cliente:* ${telefonoFormateado}\n` +
-    `💰 *Monto:* $${s.totalTemp} MXN\n` +
-    `⏰ *Hora:* ${horaActual} (México)`;
-  
-  try {
-    // Intentar reenviar la imagen directamente
-    await sendMessage(sucursal.telefono, {
-      type: "image",
-      image: { id: imageId, caption: caption }
-    });
-  } catch (error) {
-    // Si falla, enviar mensaje de texto
-    await sendMessage(sucursal.telefono, textMsg(
-      `⚠️ *COMPROBANTE DE ${telefonoFormateado}*\nMonto: $${s.totalTemp}\n(Imagen no pudo ser reenviada automáticamente)`
-    ));
-  }
-  
-  // Enviar botones a la sucursal para confirmar/rechazar
-  await sendMessage(sucursal.telefono, {
-    type: "interactive",
-    interactive: {
-      type: "button",
-      body: { text: `🔍 *VERIFICAR PAGO - $${s.totalTemp}* (${horaActual})` },
-      action: {
-        buttons: [
-          { type: "reply", reply: { id: `pago_ok_${pagoId}`, title: "✅ CONFIRMAR" } },
-          { type: "reply", reply: { id: `pago_no_${pagoId}`, title: "❌ RECHAZAR" } },
-          { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
-        ]
-      }
-    }
-  });
-  
-  s.comprobanteEnviado = true;
-  s.step = "esperando_confirmacion";
-  
-  return res.sendStatus(200);
-}
     
-    // ==================== MANEJO DE BOTONES ====================
+    // ==================== MANEJO DE BOTONES (CORREGIDO PARA SUCURSALES) ====================
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
       const fromNumber = msg.from;
@@ -813,19 +809,40 @@ if (msg.type === "image" || msg.type === "document") {
       
       console.log(`🔍 Botón presionado: ${replyId} (${replyTitle}) por ${fromNumber}`);
       
-      const esSucursal = Object.values(SUCURSALES).some(s => s.telefono === fromNumber);
+      // ===== NORMALIZAR NÚMEROS PARA COMPARAR =====
+      const normalizarParaComparar = (num) => {
+        if (!num) return num;
+        const str = String(num);
+        if (str.startsWith('521')) return str.substring(3);
+        if (str.startsWith('52')) return str.substring(2);
+        return str;
+      };
+
+      const fromNormalizado = normalizarParaComparar(fromNumber);
+      const esSucursal = Object.values(SUCURSALES).some(s => 
+        normalizarParaComparar(s.telefono) === fromNormalizado
+      );
       const esCliente = sessions[fromNumber] ? true : false;
       
+      console.log(`📞 Número original: ${fromNumber} -> Normalizado: ${fromNormalizado}`);
+      console.log(`📊 Resultado: esCliente=${esCliente}, esSucursal=${esSucursal}`);
+      
+      // CASO 1: ES CLIENTE
       if (esCliente) {
         console.log(`👤 Cliente ${fromNumber} presionó botón, será procesado en el flujo normal`);
+        // No hacemos return, dejamos que el flujo normal lo maneje
       }
+      // CASO 2: ES SUCURSAL
       else if (esSucursal) {
-        console.log(`🏪 Sucursal ${fromNumber} respondió`);
+        console.log(`🏪 SUCURSAL ${fromNumber} respondió - Procesando...`);
         
+        // BLOQUEAR CLIENTE
         if (replyId.startsWith("bloquear_")) {
           const numeroABloquear = replyId.replace("bloquear_", "");
+          console.log(`🚫 Bloqueando cliente: ${numeroABloquear}`);
           blockedNumbers.add(numeroABloquear);
           guardarBloqueados();
+          
           await sendMessage(fromNumber, textMsg(`✅ Cliente ${formatearNumero(numeroABloquear)} bloqueado`));
           try {
             await sendMessage(numeroABloquear, textMsg("🚫 *HAS SIDO BLOQUEADO*"));
@@ -833,6 +850,7 @@ if (msg.type === "image" || msg.type === "document") {
           return res.sendStatus(200);
         }
         
+        // DESBLOQUEAR CLIENTE
         if (replyId.startsWith("desbloquear_")) {
           const numeroADesbloquear = replyId.replace("desbloquear_", "");
           if (blockedNumbers.has(numeroADesbloquear)) {
@@ -843,15 +861,22 @@ if (msg.type === "image" || msg.type === "document") {
           return res.sendStatus(200);
         }
         
+        // ACEPTAR PEDIDO
         if (replyId.startsWith("aceptar_")) {
           const pedidoId = replyId.replace("aceptar_", "");
-          console.log(`✅ Procesando aceptación de pedido: ${pedidoId}`);
+          console.log(`✅ Procesando ACEPTACIÓN de pedido: ${pedidoId}`);
+          
+          let pedidoEncontrado = false;
           
           for (const [cliente, s] of Object.entries(sessions)) {
             if (s.pedidoId === pedidoId) {
+              pedidoEncontrado = true;
+              
               const sucursalPedido = SUCURSALES[s.sucursal];
               const telefonoFormateado = formatearNumero(cliente);
               const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
+              
+              console.log(`✅ Pedido #${s.folio} aceptado - Cliente: ${telefonoFormateado}`);
               
               await sendMessage(cliente, textMsg(
                 `✅ *¡PEDIDO #${s.folio} ACEPTADO!*\n\n` +
@@ -867,20 +892,34 @@ if (msg.type === "image" || msg.type === "document") {
               s.step = "completado";
               s.pagoProcesado = true;
               s.lastAction = now();
+              
               break;
             }
           }
+          
+          if (!pedidoEncontrado) {
+            console.log(`⚠️ Pedido no encontrado: ${pedidoId}`);
+            await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe o expiró"));
+          }
+          
           return res.sendStatus(200);
         }
         
+        // RECHAZAR PEDIDO
         if (replyId.startsWith("rechazar_")) {
           const pedidoId = replyId.replace("rechazar_", "");
-          console.log(`❌ Procesando rechazo de pedido: ${pedidoId}`);
+          console.log(`❌ Procesando RECHAZO de pedido: ${pedidoId}`);
+          
+          let pedidoEncontrado = false;
           
           for (const [cliente, s] of Object.entries(sessions)) {
             if (s.pedidoId === pedidoId) {
+              pedidoEncontrado = true;
+              
               const sucursalPedido = SUCURSALES[s.sucursal];
               const telefonoFormateado = formatearNumero(cliente);
+              
+              console.log(`❌ Pedido #${s.folio} rechazado - Cliente: ${telefonoFormateado}`);
               
               await sendMessage(cliente, textMsg(
                 "❌ *PEDIDO RECHAZADO*\n\n" +
@@ -899,13 +938,21 @@ if (msg.type === "image" || msg.type === "document") {
               break;
             }
           }
+          
+          if (!pedidoEncontrado) {
+            await sendMessage(fromNumber, textMsg("⚠️ El pedido ya no existe o expiró"));
+          }
+          
           return res.sendStatus(200);
         }
         
+        // PAGO CONFIRMADO
         if (replyId.startsWith("pago_ok_")) {
           const partes = replyId.split("_");
           const cliente = partes[2];
           const sucursalKey = partes[3];
+          
+          console.log(`💰 Confirmando pago de cliente: ${cliente}`);
           
           if (!sessions[cliente]) {
             await sendMessage(fromNumber, textMsg("⚠️ Cliente no encontrado"));
@@ -934,9 +981,12 @@ if (msg.type === "image" || msg.type === "document") {
           return res.sendStatus(200);
         }
         
+        // PAGO RECHAZADO
         if (replyId.startsWith("pago_no_")) {
           const partes = replyId.split("_");
           const cliente = partes[2];
+          
+          console.log(`❌ Rechazando pago de cliente: ${cliente}`);
           
           if (sessions[cliente]) {
             const s = sessions[cliente];
@@ -948,11 +998,13 @@ if (msg.type === "image" || msg.type === "document") {
           return res.sendStatus(200);
         }
       }
+      // CASO 3: NO RECONOCIDO
       else {
-        console.log(`⚠️ Número ${fromNumber} no reconocido`);
+        console.log(`⚠️ Número ${fromNumber} no reconocido como cliente ni sucursal`);
         return res.sendStatus(200);
       }
     }
+    // ==================== FIN MANEJO DE BOTONES ====================
 
     // ===== MANEJO NORMAL DEL FLUJO DEL BOT =====
     const rawText = msg.text?.body;
@@ -2002,7 +2054,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V24 (Horarios MEJORADOS) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V25 (SUCURSALES CORREGIDAS) corriendo en puerto ${PORT}`);
   console.log(`📅 Fecha actual del servidor: ${new Date().toDateString()}`);
   console.log(`📌 Folio actual: ${folioActual}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965 → ${formatearNumero("5216391946965")}`);
@@ -2015,5 +2067,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🇲🇽 Horario tienda: 11:00 AM - 9:00 PM`);
   console.log(`🚚 Domicilio: hasta 8:20 PM`);
   console.log(`🏪 Recoger: hasta 8:50 PM`);
-  console.log(`✅ BOTONES CORREGIDOS: Clientes y sucursales diferenciados`);
+  console.log(`✅ BOTONES DE SUCURSAL CORREGIDOS: Comparación normalizada`);
 });
