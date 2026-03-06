@@ -131,7 +131,7 @@ function ofertaActiva() {
 const TIEMPO_MAXIMO_ACEPTACION = 30 * 60 * 1000; // 30 minutos en milisegundos
 
 // =======================
-// 🏪 CONFIGURACIÓN DE SUCURSALES (CORREGIDA)
+// 🏪 CONFIGURACIÓN DE SUCURSALES (SOLO CON EL NUEVO NÚMERO)
 // =======================
 const SUCURSALES = {
   revolucion: {
@@ -150,8 +150,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA LABOR",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216393992508", // 👈 MANTENEMOS EL PRINCIPAL
-    otrosTelefonos: ["5216391759607"], // 👈 AGREGAMOS OTROS NÚMEROS AQUÍ
+    telefono: "5216391759607", // 👈 NUEVO NÚMERO (REEMPLAZADO)
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -160,32 +159,6 @@ const SUCURSALES = {
     }
   }
 };
-
-// Función para verificar si un número pertenece a una sucursal
-function esNumeroDeSucursal(numero) {
-  const numLimpio = formatearNumero(numero);
-  
-  // Verificar Revolución
-  if (formatearNumero(SUCURSALES.revolucion.telefono) === numLimpio) {
-    return { esSucursal: true, sucursal: "revolucion", datos: SUCURSALES.revolucion };
-  }
-  
-  // Verificar La Labor (con múltiples números)
-  if (formatearNumero(SUCURSALES.obrera.telefono) === numLimpio) {
-    return { esSucursal: true, sucursal: "obrera", datos: SUCURSALES.obrera };
-  }
-  
-  // Verificar otros teléfonos de La Labor
-  if (SUCURSALES.obrera.otrosTelefonos) {
-    for (const tel of SUCURSALES.obrera.otrosTelefonos) {
-      if (formatearNumero(tel) === numLimpio) {
-        return { esSucursal: true, sucursal: "obrera", datos: SUCURSALES.obrera };
-      }
-    }
-  }
-  
-  return { esSucursal: false };
-}
 
 // =======================
 // ⏰ CONFIGURACIÓN DE SESIÓN (10 MINUTOS)
@@ -358,9 +331,9 @@ async function verificarPedidosPendientes() {
         )).catch(e => console.log("Error al notificar expiración"));
         
         // Notificar a la sucursal que el pedido expiró
-        const sucursalInfo = esNumeroDeSucursal(from);
-        if (sucursalInfo.esSucursal) {
-          await sendMessage(sucursalInfo.datos.telefono, textMsg(
+        const sucursal = SUCURSALES[s.sucursal];
+        if (sucursal) {
+          await sendMessage(sucursal.telefono, textMsg(
             `⏰ *PEDIDO EXPIRADO POR TIEMPO*\n\n` +
             `Cliente: ${from}\n` +
             `Pedido: ${s.pedidoId}\n\n` +
@@ -470,7 +443,7 @@ app.get("/test-business", async (req, res) => {
     });
     await sendMessage(SUCURSALES.obrera.telefono, { 
       type: "text", 
-      text: { body: "🧪 *PRUEBA LA LABOR*\n\nBot funcionando correctamente." } 
+      text: { body: "🧪 *PRUEBA LA LABOR (NUEVO NÚMERO)*\n\nBot funcionando correctamente." } 
     });
     res.send("✅ Mensajes enviados a ambas sucursales");
   } catch (error) {
@@ -535,8 +508,8 @@ app.post("/webhook", async (req, res) => {
     }
 
     // 🔥 VERIFICAR HORARIO (solo para mensajes que no vienen de sucursales)
-    const sucursalInfo = esNumeroDeSucursal(from);
-    if (!sucursalInfo.esSucursal && !sessions[from]) {
+    const esSucursal = from === SUCURSALES.revolucion.telefono || from === SUCURSALES.obrera.telefono;
+    if (!esSucursal && !sessions[from]) {
       // Aquí iría la verificación de horario si la tuvieras
     }
 
@@ -1961,8 +1934,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Bot V18 (Comprobantes con Descarga) corriendo en puerto ${PORT}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965`);
   console.log(`📱 Número de sucursal REVOLUCIÓN: 5216391283842`);
-  console.log(`📱 Número de sucursal LA LABOR: 5216393992508`);
-  console.log(`📱 NUEVO número LA LABOR: 5216391759607 (también válido)`);
+  console.log(`📱 Número de sucursal LA LABOR (NUEVO): 5216391759607`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Sin límite de tiempo entre pedidos`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
