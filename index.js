@@ -125,8 +125,8 @@ function ofertaActiva() {
   return OFERTA_ESPECIAL.dias_validos.includes(hoy);
 }
 
-// =======================
-// ⏰ CONFIGURACIÓN DE HORARIO (MÉXICO)
+/* =======================
+// ⏰ CONFIGURACIÓN DE HORARIO (MÉXICO) - COMENTADO PARA PRUEBAS
 // =======================
 function verificarHorario() {
   const ahoraMexico = moment().tz("America/Mexico_City");
@@ -139,7 +139,7 @@ function verificarHorario() {
   if (dia === 2) {
     return {
       abierto: false,
-      mensaje: "🕒 *TIENDA CERRADA (MARTES)*\n\nNuestro horario es de 11:00 AM a 9:00 PM.\nLos martes permanecemos cerrados.\n\nVuelve mañana en nuestro horario de atención. 🍕"
+      mensaje: "🕒 *  PIZERIA CERRADA (MARTES)*\n\nNuestro horario es de 11:00 AM a 9:00 PM.\nLos martes permanecemos cerrados.\n\nVuelve mañana en nuestro horario de atención. 🍕"
     };
   }
   
@@ -147,10 +147,17 @@ function verificarHorario() {
   if (hora < 11 || hora >= 21) {
     return {
       abierto: false,
-      mensaje: `🕒 *TIENDA CERRADA*\n\nSon las ${ahoraMexico.format('HH:mm')} hrs (hora México).\nNuestro horario es de 11:00 AM a 9:00 PM.\nVuelve en nuestro horario de atención. 🍕`
+      mensaje: `🕒 *PIZERIA CERRADA*\n\nSon las ${ahoraMexico.format('HH:mm')} hrs (hora México).\nNuestro horario es de 11:00 AM a 9:00 PM.\nVuelve en nuestro horario de atención. 🍕`
     };
   }
   
+  return { abierto: true };
+}
+*/
+
+// 🔥 VERSIÓN DE PRUEBA (siempre abierto)
+function verificarHorario() {
+  console.log("🧪 MODO PRUEBA: Tienda siempre abierta");
   return { abierto: true };
 }
 
