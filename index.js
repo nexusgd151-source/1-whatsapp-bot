@@ -104,7 +104,7 @@ function guardarBloqueados() {
 // 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL (ACTIVADA)
 // =======================
 const OFERTA_ESPECIAL = {
-  activa: true, // 👈 ACTIVADA
+  activa: true,
   nombre: "Pepperoni Grande $100",
   pizza: "pepperoni",
   tamaño: "grande",
@@ -126,12 +126,41 @@ function ofertaActiva() {
 }
 
 // =======================
+// ⏰ CONFIGURACIÓN DE HORARIO (MÉXICO)
+// =======================
+function verificarHorario() {
+  const ahoraMexico = moment().tz("America/Mexico_City");
+  const hora = ahoraMexico.hours();
+  const dia = ahoraMexico.day(); // 0=domingo, 1=lunes, 2=martes, ..., 6=sábado
+  
+  console.log(`🇲🇽 Verificando horario: ${ahoraMexico.format('dddd DD/MM/YYYY HH:mm')}`);
+  
+  // Martes cerrado (dia === 2)
+  if (dia === 2) {
+    return {
+      abierto: false,
+      mensaje: "🕒 *TIENDA CERRADA (MARTES)*\n\nNuestro horario es de 11:00 AM a 9:00 PM.\nLos martes permanecemos cerrados.\n\nVuelve mañana en nuestro horario de atención. 🍕"
+    };
+  }
+  
+  // Horario: 11:00 AM a 9:00 PM
+  if (hora < 11 || hora >= 21) {
+    return {
+      abierto: false,
+      mensaje: `🕒 *TIENDA CERRADA*\n\nSon las ${ahoraMexico.format('HH:mm')} hrs (hora México).\nNuestro horario es de 11:00 AM a 9:00 PM.\nVuelve en nuestro horario de atención. 🍕`
+    };
+  }
+  
+  return { abierto: true };
+}
+
+// =======================
 // ⏰ CONFIGURACIÓN DE TIEMPO PARA ACEPTACIÓN DE PEDIDOS
 // =======================
 const TIEMPO_MAXIMO_ACEPTACION = 30 * 60 * 1000; // 30 minutos en milisegundos
 
 // =======================
-// 🏪 CONFIGURACIÓN DE SUCURSALES (SOLO CON EL NUEVO NÚMERO)
+// 🏪 CONFIGURACIÓN DE SUCURSALES
 // =======================
 const SUCURSALES = {
   revolucion: {
@@ -150,7 +179,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA LABOR",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216391759607", // 👈 NUEVO NÚMERO (REEMPLAZADO)
+    telefono: "5216391759607", // NUEVO NÚMERO
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -161,10 +190,10 @@ const SUCURSALES = {
 };
 
 // =======================
-// ⏰ CONFIGURACIÓN DE SESIÓN (10 MINUTOS)
+// ⏰ CONFIGURACIÓN DE SESIÓN (ACTUALIZADA: 15 y 30 minutos)
 // =======================
-const SESSION_TIMEOUT = 10 * 60 * 1000;
-const WARNING_TIME = 5 * 60 * 1000;
+const SESSION_TIMEOUT = 30 * 60 * 1000;  // 30 minutos
+const WARNING_TIME = 15 * 60 * 1000;     // 15 minutos
 const UMBRAL_TRANSFERENCIA = 450;
 
 // Tiempos de preparación personalizados
@@ -274,7 +303,7 @@ const resetSession = (from) => {
     pagoId: null,
     pizzaSeleccionada: null,
     es_oferta: false,
-    pedidoEnviadoEn: null // 👈 NUEVO CAMPO PARA CONTROL DE EXPIRACIÓN
+    pedidoEnviadoEn: null
   };
 };
 
@@ -282,7 +311,7 @@ const isExpired = (s) => !ESTADOS_FINALES.includes(s.step) && now() - s.lastActi
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
 
 // =======================
-// ⏰ FUNCIÓN PARA VERIFICAR Y ENVIAR AVISOS DE SESIÓN
+// ⏰ FUNCIÓN PARA VERIFICAR Y ENVIAR AVISOS DE SESIÓN (ACTUALIZADA)
 // =======================
 async function checkSessionWarning(from, s) {
   if (!sessions[from]) return true;
@@ -297,7 +326,7 @@ async function checkSessionWarning(from, s) {
     delete sessions[from];
     await sendMessage(from, textMsg(
       "⏰ *SESIÓN EXPIRADA*\n\n" +
-      "Llevas más de 10 minutos sin actividad.\n" +
+      "Llevas más de 30 minutos sin actividad.\n" +
       "Tu pedido ha sido cancelado.\n\n" +
       "Escribe *Hola* para comenzar de nuevo. 🍕"
     ));
@@ -349,7 +378,7 @@ async function verificarPedidosPendientes() {
 }
 
 // =======================
-// ⏰ VERIFICACIÓN AUTOMÁTICA DE SESIONES
+// ⏰ VERIFICACIÓN AUTOMÁTICA DE SESIONES (ACTUALIZADA)
 // =======================
 setInterval(async () => {
   const ahora = now();
@@ -365,7 +394,7 @@ setInterval(async () => {
       console.log(`⏰ Sesión expirada automáticamente: ${from}`);
       await sendMessage(from, textMsg(
         "⏰ *SESIÓN EXPIRADA*\n\n" +
-        "Llevas más de 10 minutos sin actividad.\n" +
+        "Llevas más de 30 minutos sin actividad.\n" +
         "Tu pedido ha sido cancelado.\n\n" +
         "Escribe *Hola* para comenzar de nuevo. 🍕"
       )).catch(e => console.log("Error al enviar mensaje de expiración"));
@@ -390,7 +419,7 @@ setInterval(async () => {
 // =======================
 setInterval(() => {
   verificarPedidosPendientes();
-}, 60000); // Verificar cada minuto
+}, 60000);
 
 // =======================
 // WEBHOOK - GET
@@ -443,7 +472,7 @@ app.get("/test-business", async (req, res) => {
     });
     await sendMessage(SUCURSALES.obrera.telefono, { 
       type: "text", 
-      text: { body: "🧪 *PRUEBA LA LABOR (NUEVO NÚMERO)*\n\nBot funcionando correctamente." } 
+      text: { body: "🧪 *PRUEBA LA LABOR*\n\nBot funcionando correctamente." } 
     });
     res.send("✅ Mensajes enviados a ambas sucursales");
   } catch (error) {
@@ -499,18 +528,22 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
+    // 🔥 VERIFICAR HORARIO (solo para clientes, no para sucursales)
+    const esSucursal = from === SUCURSALES.revolucion.telefono || from === SUCURSALES.obrera.telefono;
+    if (!esSucursal) {
+      const horario = verificarHorario();
+      if (!horario.abierto) {
+        await sendMessage(from, textMsg(horario.mensaje));
+        return res.sendStatus(200);
+      }
+    }
+
     // 🔥 VERIFICAR SESIÓN
     if (sessions[from]) {
       const sessionActiva = await checkSessionWarning(from, sessions[from]);
       if (!sessionActiva) {
         return res.sendStatus(200);
       }
-    }
-
-    // 🔥 VERIFICAR HORARIO (solo para mensajes que no vienen de sucursales)
-    const esSucursal = from === SUCURSALES.revolucion.telefono || from === SUCURSALES.obrera.telefono;
-    if (!esSucursal && !sessions[from]) {
-      // Aquí iría la verificación de horario si la tuvieras
     }
 
     // 🔥 DETECTAR IMAGEN (COMPROBANTE)
@@ -1297,7 +1330,7 @@ app.post("/webhook", async (req, res) => {
         s.pickupName = rawText;
         
         s.pedidoId = `${from}_${Date.now()}`;
-        s.pedidoEnviadoEn = now(); // 👈 Guardar cuándo se envió el pedido
+        s.pedidoEnviadoEn = now();
         
         const sucursalDestino = SUCURSALES[s.sucursal];
         const resumenPreliminar = buildPreliminarSummary(s);
@@ -1346,7 +1379,7 @@ app.post("/webhook", async (req, res) => {
             );
           } else {
             s.pedidoId = `${from}_${Date.now()}`;
-            s.pedidoEnviadoEn = now(); // 👈 Guardar cuándo se envió el pedido
+            s.pedidoEnviadoEn = now();
             
             const sucursalDestino = SUCURSALES[s.sucursal];
             const resumenPreliminar = buildPreliminarSummary(s);
@@ -1527,7 +1560,6 @@ const askExtra = () => {
 };
 
 const extraList = () => {
-  // Ordenamos los extras para que se vean bien
   const extrasOrdenados = [
     "pepperoni", "jamon", "jalapeno", "pina", 
     "chorizo", "salchicha_italiana", "salchicha_asar", 
@@ -1931,16 +1963,17 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V18 (Comprobantes con Descarga) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V19 (Horario e Inactividad Mejorados) corriendo en puerto ${PORT}`);
   console.log(`📱 Número de cliente (pruebas): 5216391946965`);
   console.log(`📱 Número de sucursal REVOLUCIÓN: 5216391283842`);
-  console.log(`📱 Número de sucursal LA LABOR (NUEVO): 5216391759607`);
+  console.log(`📱 Número de sucursal LA LABOR: 5216391759607`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Sin límite de tiempo entre pedidos`);
-  console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
+  console.log(`⏰ Sesión: 30 minutos (aviso a los 15 min)`);
   console.log(`⏱️ Tiempo preparación: Recoger ${TIEMPO_PREPARACION.recoger} | Domicilio ${TIEMPO_PREPARACION.domicilio}`);
   console.log(`🎁 Oferta especial: ${ofertaActiva() ? "ACTIVA" : "INACTIVA"} (Vie-Sáb-Dom)`);
   console.log(`⏰ Tiempo máximo para aceptar pedidos: 30 minutos`);
+  console.log(`🕒 Horario: 11:00 AM - 9:00 PM (Martes cerrado)`);
   console.log(`🚫 Endpoint bloqueos: /bloquear/[numero]`);
   console.log(`✅ Endpoint desbloqueos: /desbloquear/[numero]`);
   console.log(`📋 Lista bloqueados: /bloqueados`);
