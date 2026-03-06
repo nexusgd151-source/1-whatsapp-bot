@@ -129,6 +129,7 @@ function ofertaActiva() {
   const hoy = new Date().getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
   return OFERTA_ESPECIAL.dias_validos.includes(hoy);
 }
+/*
 // =======================
 // ⏰ CONFIGURACIÓN DE HORARIO (MÉXICO) - VERSIÓN DE PRUEBA
 // =======================
@@ -137,8 +138,9 @@ function verificarHorario() {
   console.log("🧪 MODO PRUEBA: Tienda siempre abierta");
   return { abierto: true };
 }
+*/
 
-/* 
+
 // =======================
 // ⏰ VERSIÓN ORIGINAL (COMENTADA PARA PRUEBAS)
 // =======================
@@ -165,7 +167,7 @@ function verificarHorario() {
   
   return { abierto: true };
 }
-*/
+
 
 // =======================
 // ⏰ CONFIGURACIÓN DE TIEMPO PARA ACEPTACIÓN DE PEDIDOS
