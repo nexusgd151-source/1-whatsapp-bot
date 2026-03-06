@@ -104,7 +104,7 @@ function guardarBloqueados() {
 // 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL (ACTIVADA)
 // =======================
 const OFERTA_ESPECIAL = {
-  activa: true, // 👈 CAMBIADO A TRUE
+  activa: true, // 👈 ACTIVADA
   nombre: "Pepperoni Grande $100",
   pizza: "pepperoni",
   tamaño: "grande",
@@ -131,7 +131,7 @@ function ofertaActiva() {
 const TIEMPO_MAXIMO_ACEPTACION = 30 * 60 * 1000; // 30 minutos en milisegundos
 
 // =======================
-// 🏪 CONFIGURACIÓN DE SUCURSALES (CON NUEVO NÚMERO)
+// 🏪 CONFIGURACIÓN DE SUCURSALES (CORREGIDA)
 // =======================
 const SUCURSALES = {
   revolucion: {
@@ -150,9 +150,8 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA LABOR",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216393992508",
-    // 👇 NUEVO NÚMERO AGREGADO
-    telefonos: ["5216393992508", "5216391759607"], // Array con múltiples números
+    telefono: "5216393992508", // 👈 MANTENEMOS EL PRINCIPAL
+    otrosTelefonos: ["5216391759607"], // 👈 AGREGAMOS OTROS NÚMEROS AQUÍ
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -172,14 +171,17 @@ function esNumeroDeSucursal(numero) {
   }
   
   // Verificar La Labor (con múltiples números)
-  if (SUCURSALES.obrera.telefonos) {
-    for (const tel of SUCURSALES.obrera.telefonos) {
+  if (formatearNumero(SUCURSALES.obrera.telefono) === numLimpio) {
+    return { esSucursal: true, sucursal: "obrera", datos: SUCURSALES.obrera };
+  }
+  
+  // Verificar otros teléfonos de La Labor
+  if (SUCURSALES.obrera.otrosTelefonos) {
+    for (const tel of SUCURSALES.obrera.otrosTelefonos) {
       if (formatearNumero(tel) === numLimpio) {
         return { esSucursal: true, sucursal: "obrera", datos: SUCURSALES.obrera };
       }
     }
-  } else if (formatearNumero(SUCURSALES.obrera.telefono) === numLimpio) {
-    return { esSucursal: true, sucursal: "obrera", datos: SUCURSALES.obrera };
   }
   
   return { esSucursal: false };
@@ -1960,7 +1962,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📱 Número de cliente (pruebas): 5216391946965`);
   console.log(`📱 Número de sucursal REVOLUCIÓN: 5216391283842`);
   console.log(`📱 Número de sucursal LA LABOR: 5216393992508`);
-  console.log(`📱 NUEVO número LA LABOR: 5216391759607`);
+  console.log(`📱 NUEVO número LA LABOR: 5216391759607 (también válido)`);
   console.log(`💰 Umbral transferencia: $${UMBRAL_TRANSFERENCIA}`);
   console.log(`⏱️ Sin límite de tiempo entre pedidos`);
   console.log(`⏰ Sesión: 10 minutos (aviso a los 5 min)`);
