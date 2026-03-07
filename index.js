@@ -1539,8 +1539,12 @@ const paymentForzadoMessage = (s) => {
 const confirmacionFinal = (s) => {
   const total = calcularTotal(s);
   const suc = SUCURSALES[s.sucursal];
+  // 👇 AGREGAR ESTA LÍNEA para formatear el número
+  const telefonoFormateado = formatearNumero(s.clientNumber);
   
   let resumen = `📋 *CONFIRMA TU PEDIDO - #${s.folio || "Nuevo"}*\n\n`;
+  // 👇 AGREGAR EL CLIENTE FORMATEADO AQUÍ
+  resumen += `👤 *Cliente:* ${telefonoFormateado}\n\n`;
   
   s.pizzas.forEach((p, i) => {
     if (p.es_oferta) {
@@ -1644,9 +1648,15 @@ const buildPreliminarSummary = (s) => {
 
 const buildClienteSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
+  // 👇 AGREGAR ESTA LÍNEA para formatear el número
+  const telefonoFormateado = formatearNumero(s.clientNumber);
   let total = 0;
-  let text = `✅ *PEDIDO #${s.folio} CONFIRMADO*\n🏪 ${suc.nombre}\n\n`;
+  
+  let text = `✅ *PEDIDO #${s.folio} CONFIRMADO*\n`;
+  text += `🏪 ${suc.nombre}\n`;
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
+  // 👇 USAR la variable formateada aquí
+  text += `👤 *Cliente:* ${telefonoFormateado}\n\n`;
   
   s.pizzas.forEach((p, i) => {
     if (p.es_oferta) {
@@ -1701,10 +1711,14 @@ const buildClienteSummary = (s) => {
 
 const buildNegocioSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
+  // 👇 APLICAR formatearNumero AQUÍ
+  const telefonoFormateado = formatearNumero(s.clientNumber);
   let total = 0;
-  let text = `🛎️ *PEDIDO #${s.folio} CONFIRMADO*\n🏪 ${suc.nombre}\n\n`;
+  
+  let text = `🛎️ *PEDIDO #${s.folio} CONFIRMADO*\n`;
+  text += `🏪 ${suc.nombre}\n`;
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
-  text += `👤 *Cliente:* ${s.clientNumber}\n\n`;
+  text += `👤 *Cliente:* ${telefonoFormateado}\n\n`; // 👈 AHORA SALE FORMATEADO
   
   s.pizzas.forEach((p, i) => {
     if (p.es_oferta) {
