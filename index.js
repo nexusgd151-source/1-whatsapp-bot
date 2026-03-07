@@ -124,13 +124,43 @@ function ofertaActiva() {
   const hoy = new Date().getDay();
   return OFERTA_ESPECIAL.dias_validos.includes(hoy);
 }
-
+/*
 // =======================
-// ⏰ CONFIGURACIÓN DE HORARIO (MÉXICO)
+// ⏰ CONFIGURACIÓN DE HORARIO (MÉXICO) - VERSIÓN DE PRUEBA (COMENTADA)
 // =======================
 function verificarHorario() {
   // 🔥 MODO PRUEBA: Siempre abierto
   console.log("🧪 MODO PRUEBA: Tienda siempre abierta");
+  return { abierto: true };
+}
+*/
+
+// =======================
+// ⏰ VERSIÓN ORIGINAL (ACTIVADA)
+// =======================
+function verificarHorario() {
+  const ahoraMexico = moment().tz("America/Mexico_City");
+  const hora = ahoraMexico.hours();
+  const dia = ahoraMexico.day(); // 0=domingo, 1=lunes, 2=martes, ..., 6=sábado
+  
+  console.log(`🇲🇽 Verificando horario: ${ahoraMexico.format('dddd DD/MM/YYYY HH:mm')}`);
+  
+  // Martes cerrado (dia === 2)
+  if (dia === 2) {
+    return {
+      abierto: false,
+      mensaje: "🕒 *PIZERIA CERRADA (MARTES)*\n\nNuestro horario es de 11:00 AM a 9:00 PM.\nLos martes permanecemos cerrados.\n\nVuelve mañana en nuestro horario de atención. 🍕"
+    };
+  }
+  
+  // Horario: 11:00 AM a 9:00 PM
+  if (hora < 11 || hora >= 21) {
+    return {
+      abierto: false,
+      mensaje: `🕒 *PIZERIA CERRADA*\n\nSon las ${ahoraMexico.format('HH:mm')} hrs (hora México).\nNuestro horario es de 11:00 AM a 9:00 PM.\nVuelve en nuestro horario de atención. 🍕`
+    };
+  }
+  
   return { abierto: true };
 }
 
