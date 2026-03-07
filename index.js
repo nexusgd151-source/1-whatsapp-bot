@@ -65,9 +65,9 @@ try {
 }
 
 // =======================
-// 📞 FUNCIÓN PARA RESUMIR NÚMERO
+// 📞 FUNCIÓN PARA FORMATEAR NÚMERO
 // =======================
-function resumirNumero(numero) {
+function formatearNumero(numero) {
   if (!numero) return numero;
   
   const numStr = String(numero);
@@ -134,37 +134,11 @@ function verificarHorario() {
   return { abierto: true };
 }
 
-/* 
-// Versión original comentada
-function verificarHorario() {
-  const ahoraMexico = moment().tz("America/Mexico_City");
-  const hora = ahoraMexico.hours();
-  const dia = ahoraMexico.day();
-  
-  console.log(`🇲🇽 Verificando horario: ${ahoraMexico.format('dddd DD/MM/YYYY HH:mm')}`);
-  
-  if (dia === 2) {
-    return {
-      abierto: false,
-      mensaje: "🕒 *PIZERIA CERRADA (MARTES)*\n\nNuestro horario es de 11:00 AM a 9:00 PM.\nLos martes permanecemos cerrados.\n\nVuelve mañana en nuestro horario de atención. 🍕"
-    };
-  }
-  
-  if (hora < 11 || hora >= 21) {
-    return {
-      abierto: false,
-      mensaje: `🕒 *PIZERIA CERRADA*\n\nSon las ${ahoraMexico.format('HH:mm')} hrs (hora México).\nNuestro horario es de 11:00 AM a 9:00 PM.\nVuelve en nuestro horario de atención. 🍕`
-    };
-  }
-  
-  return { abierto: true };
-}
-*/
-
 // =======================
-// ⏰ CONFIGURACIÓN DE TIEMPO PARA ACEPTACIÓN DE PEDIDOS (AUMENTADO A 60 MIN)
+// ⏰ CONFIGURACIÓN DE TIEMPOS
 // =======================
 const TIEMPO_MAXIMO_ACEPTACION = 60 * 60 * 1000; // 60 minutos
+const TIEMPO_REINTENTO = 5 * 60 * 1000; // 5 minutos para reintentar envíos fallidos
 
 // =======================
 // 🏪 CONFIGURACIÓN DE SUCURSALES
@@ -199,8 +173,8 @@ const SUCURSALES = {
 // =======================
 // ⏰ CONFIGURACIÓN DE SESIÓN
 // =======================
-const SESSION_TIMEOUT = 60 * 60 * 1000; // 60 minutos (aumentado)
-const WARNING_TIME = 30 * 60 * 1000;    // 30 minutos (aviso)
+const SESSION_TIMEOUT = 30 * 60 * 1000;
+const WARNING_TIME = 15 * 60 * 1000;
 const UMBRAL_TRANSFERENCIA = 450;
 
 const TIEMPO_PREPARACION = {
@@ -209,8 +183,6 @@ const TIEMPO_PREPARACION = {
 };
 
 const ESTADOS_FINALES = ["esperando_confirmacion", "esperando_confirmacion_sucursal", "completado"];
-
-const PALABRAS_CANCELACION = ["cancelar", "terminar", "salir", "cancel", "exit", "cancelar pedido"];
 
 const PRICES = {
   pepperoni: { 
@@ -308,12 +280,22 @@ const resetSession = (from) => {
     pizzaSeleccionada: null,
     es_oferta: false,
     pedidoEnviadoEn: null,
-    folio: null
+    folio: null,
+    reintentos: 0, // 👈 NUEVO: contador de reintentos
+    ultimoReintento: null // 👈 NUEVO: cuándo se reintentó
   };
 };
 
 const isExpired = (s) => !ESTADOS_FINALES.includes(s.step) && now() - s.lastAction > SESSION_TIMEOUT;
 const TEXT_ONLY_STEPS = ["ask_address", "ask_phone", "ask_pickup_name", "ask_comprobante"];
+
+// =======================
+// ⏰ FUNCIÓN PARA VERIFICAR HORARIO
+// =======================
+function verificarHorario() {
+  console.log("🧪 MODO PRUEBA: Tienda siempre abierta");
+  return { abierto: true };
+}
 
 // =======================
 // ⏰ VERIFICACIÓN DE SESIÓN
@@ -331,7 +313,7 @@ async function checkSessionWarning(from, s) {
     delete sessions[from];
     await sendMessage(from, textMsg(
       "⏰ *SESIÓN EXPIRADA*\n\n" +
-      "Llevas más de 60 minutos sin actividad.\n" +
+      "Llevas más de 30 minutos sin actividad.\n" +
       "Tu pedido ha sido cancelado.\n\n" +
       "Escribe *Hola* para comenzar de nuevo. 🍕"
     ));
@@ -342,26 +324,62 @@ async function checkSessionWarning(from, s) {
 }
 
 // =======================
-// ⏰ FUNCIÓN PARA VERIFICAR PEDIDOS PENDIENTES (CORREGIDA)
+// ⏰ FUNCIÓN PARA VERIFICAR PEDIDOS PENDIENTES Y REINTENTAR
 // =======================
 async function verificarPedidosPendientes() {
   const ahora = now();
   
   for (const [from, s] of Object.entries(sessions)) {
-    if (s.step === "esperando_confirmacion_sucursal" && s.pedidoId) {
-      const tiempoEspera = ahora - (s.pedidoEnviadoEn || s.lastAction);
+    // ===== VERIFICAR PEDIDOS QUE NO HAN SIDO ENVIADOS =====
+    if (s.pedidoId && s.step === "esperando_confirmacion_sucursal" && !s.pagoProcesado && !s.resumenEnviado) {
       
-      // ✅ VERIFICAR SI EL PEDIDO YA FUE ACEPTADO
-      const pedidoAceptado = s.pagoProcesado || s.resumenEnviado || s.step === "completado";
-      
-      if (pedidoAceptado) {
-        // Si ya fue aceptado, no lo cancelamos
-        console.log(`✅ Pedido ${s.pedidoId} ya fue aceptado, no se cancela`);
+      // Si el pedido ya fue aceptado, no hacer nada
+      if (s.pagoProcesado || s.resumenEnviado || s.step === "completado") {
         continue;
       }
       
+      // Verificar tiempo desde el último reintento
+      const tiempoDesdeEnvio = ahora - s.pedidoEnviadoEn;
+      const tiempoDesdeReintento = s.ultimoReintento ? ahora - s.ultimoReintento : TIEMPO_REINTENTO + 1;
+      
+      // Si ha pasado más de 5 minutos desde el último intento
+      if (tiempoDesdeReintento > TIEMPO_REINTENTO && s.reintentos < 3) { // Máximo 3 reintentos
+        console.log(`🔄 Reintentando envío del pedido #${s.folio} (intento ${s.reintentos + 1}/3)`);
+        
+        const sucursal = SUCURSALES[s.sucursal];
+        const resumen = buildPreliminarSummary(s);
+        
+        try {
+          await sendMessage(sucursal.telefono, resumen);
+          await sendMessage(sucursal.telefono, {
+            type: "interactive",
+            interactive: {
+              type: "button",
+              body: { text: `📋 *REINTENTO - PEDIDO #${s.folio}*\n\n¿Aceptas?` },
+              action: {
+                buttons: [
+                  { type: "reply", reply: { id: `aceptar_${s.pedidoId}`, title: "✅ ACEPTAR" } },
+                  { type: "reply", reply: { id: `rechazar_${s.pedidoId}`, title: "❌ RECHAZAR" } },
+                  { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
+                ]
+              }
+            }
+          });
+          
+          s.reintentos++;
+          s.ultimoReintento = ahora;
+          console.log(`✅ Reintento ${s.reintentos} exitoso para pedido #${s.folio}`);
+        } catch (error) {
+          console.error(`❌ Error en reintento ${s.reintentos + 1}:`, error);
+          s.reintentos++;
+          s.ultimoReintento = ahora;
+        }
+      }
+      
+      // ===== VERIFICAR EXPIRACIÓN (60 minutos) =====
+      const tiempoEspera = ahora - s.pedidoEnviadoEn;
       if (tiempoEspera > TIEMPO_MAXIMO_ACEPTACION) {
-        console.log(`⏰ Pedido ${s.pedidoId} expiró (${Math.floor(tiempoEspera / 60000)} minutos)`);
+        console.log(`⏰ Pedido #${s.folio} expiró (${Math.floor(tiempoEspera / 60000)} minutos)`);
         
         await sendMessage(from, textMsg(
           "⏰ *PEDIDO EXPIRADO*\n\n" +
@@ -374,8 +392,8 @@ async function verificarPedidosPendientes() {
         if (sucursal) {
           await sendMessage(sucursal.telefono, textMsg(
             `⏰ *PEDIDO EXPIRADO*\n\n` +
-            `Cliente: ${resumirNumero(from)}\n` +
-            `Pedido: #${s.folio || 'Sin folio'}\n\n` +
+            `Cliente: ${formatearNumero(from)}\n` +
+            `Pedido: #${s.folio}\n\n` +
             `Cancelado automáticamente después de 60 minutos sin respuesta.`
           )).catch(e => console.log("Error al notificar a sucursal"));
         }
@@ -387,7 +405,7 @@ async function verificarPedidosPendientes() {
 }
 
 // =======================
-// INTERVALOS
+// ⏰ VERIFICACIÓN AUTOMÁTICA
 // =======================
 setInterval(async () => {
   const ahora = now();
@@ -403,7 +421,7 @@ setInterval(async () => {
       console.log(`⏰ Sesión expirada automáticamente: ${from}`);
       await sendMessage(from, textMsg(
         "⏰ *SESIÓN EXPIRADA*\n\n" +
-        "Llevas más de 60 minutos sin actividad.\n" +
+        "Llevas más de 30 minutos sin actividad.\n" +
         "Tu pedido ha sido cancelado.\n\n" +
         "Escribe *Hola* para comenzar de nuevo. 🍕"
       )).catch(e => console.log("Error al enviar mensaje de expiración"));
@@ -423,6 +441,9 @@ setInterval(async () => {
   }
 }, 60000);
 
+// =======================
+// ⏰ VERIFICACIÓN DE PEDIDOS PENDIENTES (cada minuto)
+// =======================
 setInterval(() => {
   verificarPedidosPendientes();
 }, 60000);
@@ -511,7 +532,7 @@ const confirmarOferta = () => {
 };
 
 // =======================
-// WEBHOOK - POST (VERSIÓN CORREGIDA)
+// WEBHOOK - POST
 // =======================
 app.post("/webhook", async (req, res) => {
   try {
@@ -541,20 +562,6 @@ app.post("/webhook", async (req, res) => {
       }
     }
 
-    // 🚩 PALABRAS DE CANCELACIÓN
-    if (PALABRAS_CANCELACION.some(palabra => rawText.includes(palabra))) {
-      if (sessions[from]) {
-        delete sessions[from];
-        console.log(`❌ Cliente ${from} canceló el pedido`);
-      }
-      await sendMessage(from, textMsg(
-        "❌ *PEDIDO CANCELADO*\n\n" +
-        "Tu pedido ha sido cancelado.\n" +
-        "Escribe *Hola* para comenzar de nuevo. 🍕"
-      ));
-      return res.sendStatus(200);
-    }
-
     // 🆕 REINICIAR CON PALABRAS CLAVE
     const palabrasReinicio = ["hola", "nuevo pedido", "empezar", "menu", "inicio", "reiniciar"];
     if (palabrasReinicio.includes(rawText)) {
@@ -578,136 +585,138 @@ app.post("/webhook", async (req, res) => {
     // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image" || msg.type === "document") {
       console.log("🔥🔥🔥 IMAGEN DETECTADA");
-      // ... (código de imagen, mantén el tuyo) ...
+      
+      if (!sessions[from]) {
+        await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
+        return res.sendStatus(200);
+      }
+      
+      const s = sessions[from];
+      
+      if (!s.sucursal) {
+        await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
+        return res.sendStatus(200);
+      }
+      
+      const sucursal = SUCURSALES[s.sucursal];
+      
+      if (s.step !== "ask_comprobante") {
+        await sendMessage(from, textMsg("❌ No estamos esperando un comprobante."));
+        return res.sendStatus(200);
+      }
+      
+      if (s.comprobanteCount >= 1) {
+        await sendMessage(from, textMsg("⚠️ Ya recibimos tu comprobante. Espera."));
+        return res.sendStatus(200);
+      }
+      
+      s.comprobanteCount++;
+      s.lastAction = now();
+      s.warningSent = false;
+      
+      await sendMessage(from, textMsg("✅ *COMPROBANTE RECIBIDO*\n\nLo estamos verificando..."));
+      
+      let imageId = null;
+      let mimeType = null;
+      
+      if (msg.type === "image") {
+        imageId = msg.image.id;
+        mimeType = msg.image.mime_type || "image/jpeg";
+      } else if (msg.type === "document") {
+        if (msg.document.mime_type?.startsWith("image/")) {
+          imageId = msg.document.id;
+          mimeType = msg.document.mime_type;
+        } else {
+          await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
+          return res.sendStatus(200);
+        }
+      }
+      
+      if (!imageId) {
+        await sendMessage(from, textMsg("❌ Error al procesar la imagen. Intenta de nuevo."));
+        return res.sendStatus(200);
+      }
+      
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 1000);
+      const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
+      s.pagoId = pagoId;
+      
+      const horaActual = new Date().toLocaleString('es-MX', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: true
+      });
+      
+      const telefonoFormateado = formatearNumero(from);
+      
+      const caption = 
+        `🖼️ *COMPROBANTE DE PAGO*\n` +
+        `━━━━━━━━━━━━━━━━━━\n\n` +
+        `🏪 *${sucursal.nombre}*\n` +
+        `👤 *Cliente:* ${telefonoFormateado}\n` +
+        `💰 *Monto:* $${s.totalTemp} MXN\n` +
+        `🆔 *Pago:* ${timestamp}\n` +
+        `⏰ *Hora:* ${horaActual}`;
+      
+      try {
+        await sendMessage(sucursal.telefono, {
+          type: "image",
+          image: { id: imageId, caption: caption }
+        });
+      } catch (error) {
+        console.error(`❌ Error al reenviar imagen:`, error);
+        await sendMessage(sucursal.telefono, textMsg(
+          `⚠️ *COMPROBANTE DE ${telefonoFormateado}*\nMonto: $${s.totalTemp}\n(No se pudo reenviar la imagen)`
+        ));
+      }
+      
+      await sendMessage(sucursal.telefono, {
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: `🔍 *VERIFICAR PAGO - $${s.totalTemp}* (${horaActual})` },
+          action: {
+            buttons: [
+              { type: "reply", reply: { id: `pago_ok_${pagoId}`, title: "✅ CONFIRMAR" } },
+              { type: "reply", reply: { id: `pago_no_${pagoId}`, title: "❌ RECHAZAR" } },
+              { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
+            ]
+          }
+        }
+      });
+      
+      s.comprobanteEnviado = true;
+      s.step = "esperando_confirmacion";
+      
       return res.sendStatus(200);
     }
     
-    // 🔥 BOTONES DE SUCURSAL (VERSIÓN CORREGIDA)
+    // 🔥 BOTONES DE SUCURSAL
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
       const fromSucursal = msg.from;
       
       console.log(`🔍 Botón: ${replyId} de ${fromSucursal}`);
       
-      // ===== BLOQUEAR CLIENTE =====
       if (replyId.startsWith("bloquear_")) {
         const num = replyId.replace("bloquear_", "");
         blockedNumbers.add(num);
         guardarBloqueados();
-        await sendMessage(fromSucursal, textMsg(`✅ Cliente ${resumirNumero(num)} bloqueado`));
+        await sendMessage(fromSucursal, textMsg(`✅ Cliente bloqueado`));
         return res.sendStatus(200);
       }
       
-      // ===== DESBLOQUEAR CLIENTE =====
       if (replyId.startsWith("desbloquear_")) {
         const num = replyId.replace("desbloquear_", "");
         if (blockedNumbers.has(num)) {
           blockedNumbers.delete(num);
           guardarBloqueados();
-          await sendMessage(fromSucursal, textMsg(`✅ Cliente ${resumirNumero(num)} desbloqueado`));
+          await sendMessage(fromSucursal, textMsg(`✅ Cliente desbloqueado`));
         }
         return res.sendStatus(200);
       }
       
-      // ===== ACEPTAR PEDIDO (CORREGIDO) =====
-      if (replyId.startsWith("aceptar_")) {
-        const pedidoId = replyId.replace("aceptar_", "");
-        console.log(`✅ Sucursal aceptó pedido: ${pedidoId}`);
-        
-        let pedidoEncontrado = false;
-        let sesionEncontrada = null;
-        let clienteEncontrado = null;
-        
-        // Buscar el pedido en todas las sesiones
-        for (const [cliente, s] of Object.entries(sessions)) {
-          if (s.pedidoId === pedidoId) {
-            pedidoEncontrado = true;
-            sesionEncontrada = s;
-            clienteEncontrado = cliente;
-            console.log(`✅ Pedido encontrado - Cliente: ${cliente}, Folio: #${s.folio}`);
-            break;
-          }
-        }
-        
-        if (pedidoEncontrado && sesionEncontrada) {
-          const sucursalPedido = SUCURSALES[sesionEncontrada.sucursal];
-          const numRes = resumirNumero(clienteEncontrado);
-          const tiempoPrep = sesionEncontrada.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
-          
-          // 1️⃣ ENVIAR CONFIRMACIÓN AL CLIENTE (aunque haya expirado)
-          try {
-            await sendMessage(clienteEncontrado, textMsg(
-              `✅ *¡PEDIDO #${sesionEncontrada.folio} ACEPTADO!*\n\n` +
-              `🏪 *${sucursalPedido.nombre}*\n` +
-              `👤 Cliente: ${numRes}\n` +
-              `⏱️ Tiempo estimado: ${tiempoPrep}`
-            ));
-            console.log(`📲 Confirmación enviada al cliente ${numRes}`);
-          } catch (e) {
-            console.log(`⚠️ No se pudo notificar al cliente (sesión expirada?)`);
-          }
-          
-          // 2️⃣ ENVIAR CONFIRMACIÓN A LA SUCURSAL (SIEMPRE)
-          await sendMessage(fromSucursal, textMsg(
-            `✅ *PEDIDO #${sesionEncontrada.folio} ACEPTADO*\n` +
-            `━━━━━━━━━━━━━━━━━━\n\n` +
-            `🏪 *${sucursalPedido.nombre}*\n` +
-            `👤 Cliente: ${numRes}\n` +
-            `📋 Pedido aceptado correctamente\n\n` +
-            `🕒 ${moment().tz("America/Mexico_City").format('hh:mm A')}`
-          ));
-          console.log(`📲 Confirmación enviada a la sucursal`);
-          
-          // 3️⃣ MARCAR COMO COMPLETADO
-          sesionEncontrada.step = "completado";
-          sesionEncontrada.pagoProcesado = true;
-          sesionEncontrada.lastAction = now();
-          
-        } else {
-          console.log(`⚠️ Pedido no encontrado: ${pedidoId}`);
-          await sendMessage(fromSucursal, textMsg(
-            "⚠️ *PEDIDO NO ENCONTRADO*\n\n" +
-            "El pedido ya no existe o expiró.\n" +
-            "Puede que el cliente haya cancelado o el tiempo haya expirado."
-          ));
-        }
-        
-        return res.sendStatus(200);
-      }
-      
-      // ===== RECHAZAR PEDIDO =====
-      if (replyId.startsWith("rechazar_")) {
-        const pedidoId = replyId.replace("rechazar_", "");
-        console.log(`❌ Sucursal rechazó pedido: ${pedidoId}`);
-        
-        for (const [cliente, s] of Object.entries(sessions)) {
-          if (s.pedidoId === pedidoId) {
-            const numRes = resumirNumero(cliente);
-            
-            try {
-              await sendMessage(cliente, textMsg(
-                `❌ *PEDIDO #${s.folio} RECHAZADO*\n\n` +
-                `🏪 *${SUCURSALES[s.sucursal].nombre}*\n` +
-                `👤 Cliente: ${numRes}\n\n` +
-                `Lo sentimos, tu pedido no pudo ser aceptado.\n\n` +
-                `📞 Contacta: ${SUCURSALES[s.sucursal].telefono}`
-              ));
-            } catch (e) {}
-            
-            await sendMessage(fromSucursal, textMsg(
-              `❌ *PEDIDO #${s.folio} RECHAZADO*\n` +
-              `Cliente: ${numRes}`
-            ));
-            
-            s.step = "completado";
-            s.lastAction = now();
-            break;
-          }
-        }
-        return res.sendStatus(200);
-      }
-      
-      // ===== PAGO CONFIRMADO =====
       if (replyId.startsWith("pago_ok_")) {
         const partes = replyId.split("_");
         const cliente = partes[2];
@@ -733,18 +742,18 @@ app.post("/webhook", async (req, res) => {
         }
         
         const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
-        const numRes = resumirNumero(cliente);
+        const telFormateado = formatearNumero(cliente);
         
         await sendMessage(cliente, textMsg(
           `✅ *¡PAGO CONFIRMADO!*\n\n` +
           `🏪 *${SUCURSALES[sucursalKey].nombre}*\n` +
           `📋 Pedido: #${s.folio}\n` +
-          `👤 Cliente: ${numRes}\n` +
+          `👤 Cliente: ${telFormateado}\n` +
           `⏱️ Tiempo: ${tiempoPrep}`
         ));
         
         await sendMessage(fromSucursal, textMsg(
-          `✅ *PAGO CONFIRMADO*\nCliente: ${numRes}\nPedido: #${s.folio}`
+          `✅ *PAGO CONFIRMADO*\nCliente: ${telFormateado}\nPedido: #${s.folio}`
         ));
         
         s.step = "completado";
@@ -752,7 +761,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // ===== PAGO RECHAZADO =====
       if (replyId.startsWith("pago_no_")) {
         const partes = replyId.split("_");
         const cliente = partes[2];
@@ -769,27 +777,107 @@ app.post("/webhook", async (req, res) => {
         }
         
         s.pagoProcesado = true;
-        const numRes = resumirNumero(cliente);
+        const telFormateado = formatearNumero(cliente);
         
         await sendMessage(cliente, textMsg(
           `❌ *PAGO RECHAZADO*\n\n` +
           `🏪 *${SUCURSALES[s.sucursal].nombre}*\n` +
           `📋 Pedido: #${s.folio}\n` +
-          `👤 Cliente: ${numRes}\n\n` +
+          `👤 Cliente: ${telFormateado}\n\n` +
           `📞 Contacta: ${SUCURSALES[s.sucursal].telefono}`
         ));
         
         await sendMessage(fromSucursal, textMsg(
-          `❌ *PAGO RECHAZADO*\nCliente: ${numRes}\nPedido: #${s.folio}`
+          `❌ *PAGO RECHAZADO*\nCliente: ${telFormateado}\nPedido: #${s.folio}`
         ));
         
         s.step = "completado";
         s.lastAction = now();
         return res.sendStatus(200);
       }
+      
+      // ===== ACEPTAR PEDIDO =====
+      if (replyId.startsWith("aceptar_")) {
+        const pedidoId = replyId.replace("aceptar_", "");
+        console.log(`✅ Procesando aceptación de pedido: ${pedidoId}`);
+        
+        let pedidoEncontrado = false;
+        
+        for (const [cliente, s] of Object.entries(sessions)) {
+          if (s.pedidoId === pedidoId) {
+            pedidoEncontrado = true;
+            
+            const sucursalPedido = SUCURSALES[s.sucursal];
+            const telefonoFormateado = formatearNumero(cliente);
+            const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
+            
+            // 1️⃣ NOTIFICAR AL CLIENTE
+            try {
+              await sendMessage(cliente, textMsg(
+                "✅ *¡PEDIDO ACEPTADO!*\n\n" +
+                `🏪 *${sucursalPedido.nombre}*\n\n` +
+                "Tu pedido ha sido aceptado y ya está en preparación.\n" +
+                `⏱️ Tiempo estimado: ${tiempoPrep}\n\n` +
+                "¡Gracias por tu preferencia! 🙌"
+              ));
+              console.log(`✅ Cliente ${telefonoFormateado} notificado`);
+            } catch (e) {
+              console.log(`⚠️ No se pudo notificar al cliente`);
+            }
+            
+            // 2️⃣ NOTIFICAR A LA SUCURSAL
+            await sendMessage(fromSucursal, textMsg(
+              `✅ *PEDIDO ACEPTADO*\n\n` +
+              `Cliente: ${telefonoFormateado}\n` +
+              `Folio: #${s.folio}\n\n` +
+              `El pedido ha sido marcado como aceptado.`
+            ));
+            
+            // Marcar como completado
+            s.step = "completado";
+            s.pagoProcesado = true;
+            s.lastAction = now();
+            break;
+          }
+        }
+        
+        if (!pedidoEncontrado) {
+          console.log(`⚠️ Pedido no encontrado: ${pedidoId}`);
+          await sendMessage(fromSucursal, textMsg(
+            "⚠️ *PEDIDO NO ENCONTRADO*\n\n" +
+            "El pedido ya no existe o expiró.\n" +
+            "Esto puede pasar si pasaron más de 60 minutos desde que el cliente hizo el pedido."
+          ));
+        }
+        
+        return res.sendStatus(200);
+      }
+      
+      if (replyId.startsWith("rechazar_")) {
+        const pedidoId = replyId.replace("rechazar_", "");
+        for (const [cliente, s] of Object.entries(sessions)) {
+          if (s.pedidoId === pedidoId) {
+            const telefonoFormateado = formatearNumero(cliente);
+            
+            await sendMessage(cliente, textMsg(
+              "❌ *PEDIDO RECHAZADO*\n\n" +
+              `🏪 *${SUCURSALES[s.sucursal].nombre}*\n\n` +
+              `Cliente: ${telefonoFormateado}\n\n` +
+              "Lo sentimos, tu pedido no pudo ser aceptado.\n" +
+              "Por favor, contacta a la sucursal para más información.\n\n" +
+              `📞 Teléfono: ${SUCURSALES[s.sucursal].telefono}`
+            ));
+            await sendMessage(fromSucursal, textMsg(`❌ *PEDIDO RECHAZADO*\n\nCliente: ${telefonoFormateado}`));
+            
+            s.step = "completado";
+            s.lastAction = now();
+            break;
+          }
+        }
+        return res.sendStatus(200);
+      }
     }
 
-    // ===== FLUJO NORMAL DEL BOT (para clientes) =====
     let input =
       msg.interactive?.button_reply?.id ||
       msg.interactive?.list_reply?.id;
@@ -833,6 +921,7 @@ app.post("/webhook", async (req, res) => {
     let reply = null;
 
     switch (s.step) {
+
       case "seleccionar_sucursal":
         if (input === "revolucion") {
           s.sucursal = "revolucion";
@@ -1111,7 +1200,6 @@ app.post("/webhook", async (req, res) => {
         reply = confirmacionFinal(s);
         break;
 
-      // CASO ASK_PICKUP_NAME
       case "ask_pickup_name":
         if (!rawText || rawText.length < 3) {
           reply = textMsg("⚠️ Nombre inválido. Intenta de nuevo:");
@@ -1123,42 +1211,39 @@ app.post("/webhook", async (req, res) => {
         
         s.pedidoId = `${from}_${Date.now()}`;
         s.pedidoEnviadoEn = now();
+        s.reintentos = 0; // Inicializar contador de reintentos
         
         const sucursalDestino = SUCURSALES[s.sucursal];
         const resumenPreliminar = buildPreliminarSummary(s);
         
-        console.log(`📤 Enviando pedido #${s.folio} a ${sucursalDestino.nombre}`);
-        
+        // Intento inicial de envío
         try {
           await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-        } catch (error) {
-          console.error(`❌ Error al enviar:`, error);
-          setTimeout(async () => {
-            try {
-              await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-            } catch (e) {}
-          }, 2000);
-        }
-        
-        await sendMessage(sucursalDestino.telefono, {
-          type: "interactive",
-          interactive: {
-            type: "button",
-            body: { text: `📋 *NUEVO PEDIDO PARA RECOGER*\n\n¿Aceptas?` },
-            action: {
-              buttons: [
-                { type: "reply", reply: { id: `aceptar_${s.pedidoId}`, title: "✅ ACEPTAR" } },
-                { type: "reply", reply: { id: `rechazar_${s.pedidoId}`, title: "❌ RECHAZAR" } },
-                { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
-              ]
+          await sendMessage(sucursalDestino.telefono, {
+            type: "interactive",
+            interactive: {
+              type: "button",
+              body: { text: `📋 *NUEVO PEDIDO PARA RECOGER - #${s.folio}*\n\n¿Aceptas?` },
+              action: {
+                buttons: [
+                  { type: "reply", reply: { id: `aceptar_${s.pedidoId}`, title: "✅ ACEPTAR" } },
+                  { type: "reply", reply: { id: `rechazar_${s.pedidoId}`, title: "❌ RECHAZAR" } },
+                  { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
+                ]
+              }
             }
-          }
-        });
+          });
+          console.log(`✅ Pedido #${s.folio} enviado correctamente`);
+        } catch (error) {
+          console.error(`❌ Error al enviar pedido #${s.folio}:`, error);
+          // El sistema de reintentos se encargará de reenviarlo
+        }
         
         await sendMessage(from, textMsg(
           `📋 *PEDIDO #${s.folio} ENVIADO*\n\n` +
-          `👤 Cliente: ${resumirNumero(from)}\n\n` +
-          "Espera confirmación de la sucursal.\n\n" +
+          `👤 Cliente: ${formatearNumero(from)}\n\n` +
+          "Tu pedido ha sido enviado a la sucursal.\n" +
+          "Si no reciben confirmación, el sistema reintentará automáticamente cada 5 minutos.\n\n" +
           "⏱️ *60 minutos para confirmar*"
         ));
         
@@ -1166,7 +1251,6 @@ app.post("/webhook", async (req, res) => {
         reply = null;
         break;
 
-      // CASO CONFIRMACION_FINAL
       case "confirmacion_final":
         if (input === "confirmar") {
           if (!s.folio) s.folio = obtenerFolio();
@@ -1183,42 +1267,39 @@ app.post("/webhook", async (req, res) => {
           } else {
             s.pedidoId = `${from}_${Date.now()}`;
             s.pedidoEnviadoEn = now();
+            s.reintentos = 0; // Inicializar contador de reintentos
             
             const sucursalDestino = SUCURSALES[s.sucursal];
             const resumenPreliminar = buildPreliminarSummary(s);
             
-            console.log(`📤 Enviando pedido #${s.folio} a ${sucursalDestino.nombre}`);
-            
+            // Intento inicial de envío
             try {
               await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-            } catch (error) {
-              console.error(`❌ Error al enviar:`, error);
-              setTimeout(async () => {
-                try {
-                  await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-                } catch (e) {}
-              }, 2000);
-            }
-            
-            await sendMessage(sucursalDestino.telefono, {
-              type: "interactive",
-              interactive: {
-                type: "button",
-                body: { text: `📋 *NUEVO PEDIDO A DOMICILIO (EFECTIVO)*\n\n¿Aceptas?` },
-                action: {
-                  buttons: [
-                    { type: "reply", reply: { id: `aceptar_${s.pedidoId}`, title: "✅ ACEPTAR" } },
-                    { type: "reply", reply: { id: `rechazar_${s.pedidoId}`, title: "❌ RECHAZAR" } },
-                    { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
-                  ]
+              await sendMessage(sucursalDestino.telefono, {
+                type: "interactive",
+                interactive: {
+                  type: "button",
+                  body: { text: `📋 *NUEVO PEDIDO A DOMICILIO (EFECTIVO) - #${s.folio}*\n\n¿Aceptas?` },
+                  action: {
+                    buttons: [
+                      { type: "reply", reply: { id: `aceptar_${s.pedidoId}`, title: "✅ ACEPTAR" } },
+                      { type: "reply", reply: { id: `rechazar_${s.pedidoId}`, title: "❌ RECHAZAR" } },
+                      { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
+                    ]
+                  }
                 }
-              }
-            });
+              });
+              console.log(`✅ Pedido #${s.folio} enviado correctamente`);
+            } catch (error) {
+              console.error(`❌ Error al enviar pedido #${s.folio}:`, error);
+              // El sistema de reintentos se encargará de reenviarlo
+            }
             
             await sendMessage(from, textMsg(
               `📋 *PEDIDO #${s.folio} ENVIADO*\n\n` +
-              `👤 Cliente: ${resumirNumero(from)}\n\n` +
-              "Espera confirmación de la sucursal.\n\n" +
+              `👤 Cliente: ${formatearNumero(from)}\n\n` +
+              "Tu pedido ha sido enviado a la sucursal.\n" +
+              "Si no reciben confirmación, el sistema reintentará automáticamente cada 5 minutos.\n\n" +
               "⏱️ *60 minutos para confirmar*"
             ));
             
@@ -1237,7 +1318,7 @@ app.post("/webhook", async (req, res) => {
       case "ask_comprobante":
         reply = textMsg(
           `📸 *ENVÍA TU COMPROBANTE - PEDIDO #${s.folio}*\n\n` +
-          `👤 Cliente: ${resumirNumero(from)}\n\n` +
+          `👤 Cliente: ${formatearNumero(from)}\n\n` +
           "Presiona el clip 📎 y selecciona la foto."
         );
         break;
@@ -1247,19 +1328,14 @@ app.post("/webhook", async (req, res) => {
         break;
         
       case "esperando_confirmacion_sucursal":
-        reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nTe avisaremos cuando sea aceptado o si pasa más de 60 minutos se cancelará. 🍕");
+        reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nEl sistema reintentará automáticamente cada 5 minutos si es necesario.\n\n⏱️ *60 minutos para confirmar*");
         break;
         
       case "completado":
         await sendMessage(from, textMsg(
           "✅ *PEDIDO COMPLETADO*\n\n" +
           "Gracias por tu compra.\n\n" +
-          "━━━━━━━━━━━━━━━━━━\n\n" +
-          "📝 *Para hacer un nuevo pedido:*\n" +
-          "   • Escribe *Hola*\n" +
-          "   • O escribe *Nuevo pedido*\n" +
-          "   • O escribe *Empezar*\n\n" +
-          "¡Te esperamos pronto! 🍕"
+          "Escribe *Hola* para hacer un nuevo pedido. 🍕"
         ));
         
         setTimeout(() => {
@@ -1283,7 +1359,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 // =======================
-// FUNCIONES UI
+// 🎨 FUNCIONES UI
 // =======================
 const seleccionarSucursal = () => {
   return buttons(
@@ -1471,10 +1547,8 @@ const paymentForzadoMessage = (s) => {
 const confirmacionFinal = (s) => {
   const total = calcularTotal(s);
   const suc = SUCURSALES[s.sucursal];
-  const numRes = resumirNumero(s.clientNumber);
   
   let resumen = `📋 *CONFIRMA TU PEDIDO - #${s.folio || "Nuevo"}*\n\n`;
-  resumen += `👤 *Cliente:* ${numRes}\n\n`;
   
   s.pizzas.forEach((p, i) => {
     if (p.es_oferta) {
@@ -1524,13 +1598,10 @@ const calcularTotal = (s) => {
 
 const buildPreliminarSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
-  const numRes = resumirNumero(s.clientNumber);
   let total = 0;
-  
-  let text = `📋 *PEDIDO #${s.folio} POR CONFIRMAR*\n`;
-  text += `🏪 ${suc.nombre}\n`;
+  let text = `📋 *PEDIDO #${s.folio} POR CONFIRMAR*\n🏪 ${suc.nombre}\n\n`;
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
-  text += `👤 *Cliente:* ${numRes}\n\n`;
+  text += `👤 *Cliente:* ${s.clientNumber}\n\n`;
   
   s.pizzas.forEach((p, i) => {
     if (p.es_oferta) {
@@ -1581,13 +1652,9 @@ const buildPreliminarSummary = (s) => {
 
 const buildClienteSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
-  const numRes = resumirNumero(s.clientNumber);
   let total = 0;
-  
-  let text = `✅ *PEDIDO #${s.folio} CONFIRMADO*\n`;
-  text += `🏪 ${suc.nombre}\n`;
+  let text = `✅ *PEDIDO #${s.folio} CONFIRMADO*\n🏪 ${suc.nombre}\n\n`;
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
-  text += `👤 *Cliente:* ${numRes}\n\n`;
   
   s.pizzas.forEach((p, i) => {
     if (p.es_oferta) {
@@ -1642,13 +1709,10 @@ const buildClienteSummary = (s) => {
 
 const buildNegocioSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
-  const numRes = resumirNumero(s.clientNumber);
   let total = 0;
-  
-  let text = `🛎️ *PEDIDO #${s.folio} CONFIRMADO*\n`;
-  text += `🏪 ${suc.nombre}\n`;
+  let text = `🛎️ *PEDIDO #${s.folio} CONFIRMADO*\n🏪 ${suc.nombre}\n\n`;
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
-  text += `👤 *Cliente:* ${numRes}\n\n`;
+  text += `👤 *Cliente:* ${s.clientNumber}\n\n`;
   
   s.pizzas.forEach((p, i) => {
     if (p.es_oferta) {
@@ -1805,13 +1869,13 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V23 CORREGIDO (Tiempo aumentado a 60 min) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V25 (CON SISTEMA DE REINTENTOS) corriendo en puerto ${PORT}`);
   console.log(`📅 Fecha: ${new Date().toDateString()}`);
   console.log(`📌 Folio actual: ${folioActual}`);
-  console.log(`📱 Cliente prueba: 5216391946965 → ${resumirNumero("5216391946965")}`);
-  console.log(`📱 Sucursal REVOLUCIÓN: 5216391283842 → ${resumirNumero("5216391283842")}`);
-  console.log(`📱 Sucursal LA LABOR: 5216391759607 → ${resumirNumero("5216391759607")}`);
-  console.log(`⏰ Sesión: 60 min (aviso 30 min)`);
-  console.log(`⏰ Tiempo para aceptar: 60 minutos`);
-  console.log(`✅ Sucursal SIEMPRE recibe confirmación aunque el cliente haya expirado`);
+  console.log(`📱 Cliente prueba: 5216391946965 → ${formatearNumero("5216391946965")}`);
+  console.log(`📱 Sucursal REVOLUCIÓN: 5216391283842 → ${formatearNumero("5216391283842")}`);
+  console.log(`📱 Sucursal LA LABOR: 5216391759607 → ${formatearNumero("5216391759607")}`);
+  console.log(`⏰ Tiempo para aceptar: 60 MINUTOS`);
+  console.log(`🔄 Reintentos: Cada 5 minutos (máx 3 intentos)`);
+  console.log(`✅ Sucursal SIEMPRE recibe confirmación`);
 });
