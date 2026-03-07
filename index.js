@@ -129,15 +129,13 @@ function ofertaActiva() {
 // ⏰ CONFIGURACIÓN DE HORARIO (MÉXICO)
 // =======================
 function verificarHorario() {
-  // 🔥 MODO PRUEBA: Siempre abierto (comentar para activar horario real)
+  // 🔥 MODO PRUEBA: Siempre abierto
   console.log("🧪 MODO PRUEBA: Tienda siempre abierta");
   return { abierto: true };
 }
 
 /* 
-// =======================
-// ⏰ VERSIÓN ORIGINAL (COMENTADA PARA PRUEBAS)
-// =======================
+// Versión original comentada
 function verificarHorario() {
   const ahoraMexico = moment().tz("America/Mexico_City");
   const hora = ahoraMexico.hours();
@@ -164,9 +162,9 @@ function verificarHorario() {
 */
 
 // =======================
-// ⏰ CONFIGURACIÓN DE TIEMPO PARA ACEPTACIÓN DE PEDIDOS
+// ⏰ CONFIGURACIÓN DE TIEMPO PARA ACEPTACIÓN DE PEDIDOS (AUMENTADO A 60 MIN)
 // =======================
-const TIEMPO_MAXIMO_ACEPTACION = 30 * 60 * 1000; // 30 minutos
+const TIEMPO_MAXIMO_ACEPTACION = 60 * 60 * 1000; // 60 minutos
 
 // =======================
 // 🏪 CONFIGURACIÓN DE SUCURSALES
@@ -188,7 +186,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA LABOR",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216393992508",
+    telefono: "5216391759607",
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -201,8 +199,8 @@ const SUCURSALES = {
 // =======================
 // ⏰ CONFIGURACIÓN DE SESIÓN
 // =======================
-const SESSION_TIMEOUT = 30 * 60 * 1000;
-const WARNING_TIME = 15 * 60 * 1000;
+const SESSION_TIMEOUT = 60 * 60 * 1000; // 60 minutos (aumentado)
+const WARNING_TIME = 30 * 60 * 1000;    // 30 minutos (aviso)
 const UMBRAL_TRANSFERENCIA = 450;
 
 const TIEMPO_PREPARACION = {
@@ -333,7 +331,7 @@ async function checkSessionWarning(from, s) {
     delete sessions[from];
     await sendMessage(from, textMsg(
       "⏰ *SESIÓN EXPIRADA*\n\n" +
-      "Llevas más de 30 minutos sin actividad.\n" +
+      "Llevas más de 60 minutos sin actividad.\n" +
       "Tu pedido ha sido cancelado.\n\n" +
       "Escribe *Hola* para comenzar de nuevo. 🍕"
     ));
@@ -344,7 +342,7 @@ async function checkSessionWarning(from, s) {
 }
 
 // =======================
-// ⏰ VERIFICAR PEDIDOS PENDIENTES
+// ⏰ FUNCIÓN PARA VERIFICAR PEDIDOS PENDIENTES (CORREGIDA)
 // =======================
 async function verificarPedidosPendientes() {
   const ahora = now();
@@ -353,12 +351,21 @@ async function verificarPedidosPendientes() {
     if (s.step === "esperando_confirmacion_sucursal" && s.pedidoId) {
       const tiempoEspera = ahora - (s.pedidoEnviadoEn || s.lastAction);
       
+      // ✅ VERIFICAR SI EL PEDIDO YA FUE ACEPTADO
+      const pedidoAceptado = s.pagoProcesado || s.resumenEnviado || s.step === "completado";
+      
+      if (pedidoAceptado) {
+        // Si ya fue aceptado, no lo cancelamos
+        console.log(`✅ Pedido ${s.pedidoId} ya fue aceptado, no se cancela`);
+        continue;
+      }
+      
       if (tiempoEspera > TIEMPO_MAXIMO_ACEPTACION) {
         console.log(`⏰ Pedido ${s.pedidoId} expiró (${Math.floor(tiempoEspera / 60000)} minutos)`);
         
         await sendMessage(from, textMsg(
           "⏰ *PEDIDO EXPIRADO*\n\n" +
-          `Han pasado más de 30 minutos y la sucursal no ha confirmado tu pedido.\n\n` +
+          `Han pasado más de 60 minutos y la sucursal no ha confirmado tu pedido.\n\n` +
           `El pedido ha sido cancelado.\n\n` +
           `Escribe *Hola* para comenzar de nuevo. 🍕`
         )).catch(e => console.log("Error al notificar expiración"));
@@ -369,7 +376,7 @@ async function verificarPedidosPendientes() {
             `⏰ *PEDIDO EXPIRADO*\n\n` +
             `Cliente: ${resumirNumero(from)}\n` +
             `Pedido: #${s.folio || 'Sin folio'}\n\n` +
-            `Cancelado automáticamente después de 30 minutos sin respuesta.`
+            `Cancelado automáticamente después de 60 minutos sin respuesta.`
           )).catch(e => console.log("Error al notificar a sucursal"));
         }
         
@@ -396,7 +403,7 @@ setInterval(async () => {
       console.log(`⏰ Sesión expirada automáticamente: ${from}`);
       await sendMessage(from, textMsg(
         "⏰ *SESIÓN EXPIRADA*\n\n" +
-        "Llevas más de 30 minutos sin actividad.\n" +
+        "Llevas más de 60 minutos sin actividad.\n" +
         "Tu pedido ha sido cancelado.\n\n" +
         "Escribe *Hola* para comenzar de nuevo. 🍕"
       )).catch(e => console.log("Error al enviar mensaje de expiración"));
@@ -504,7 +511,7 @@ const confirmarOferta = () => {
 };
 
 // =======================
-// WEBHOOK - POST
+// WEBHOOK - POST (VERSIÓN CORREGIDA)
 // =======================
 app.post("/webhook", async (req, res) => {
   try {
@@ -571,188 +578,136 @@ app.post("/webhook", async (req, res) => {
     // 🔥 DETECTAR IMAGEN (COMPROBANTE)
     if (msg.type === "image" || msg.type === "document") {
       console.log("🔥🔥🔥 IMAGEN DETECTADA");
-      
-      if (!sessions[from]) {
-        await sendMessage(from, textMsg("❌ No tienes un pedido pendiente."));
-        return res.sendStatus(200);
-      }
-      
-      const s = sessions[from];
-      
-      if (!s.sucursal) {
-        await sendMessage(from, textMsg("❌ Selecciona una sucursal primero."));
-        return res.sendStatus(200);
-      }
-      
-      const sucursal = SUCURSALES[s.sucursal];
-      
-      if (s.step !== "ask_comprobante") {
-        await sendMessage(from, textMsg("❌ No estamos esperando un comprobante."));
-        return res.sendStatus(200);
-      }
-      
-      if (s.comprobanteCount >= 1) {
-        await sendMessage(from, textMsg("⚠️ Ya recibimos tu comprobante. Espera."));
-        return res.sendStatus(200);
-      }
-      
-      s.comprobanteCount++;
-      s.lastAction = now();
-      s.warningSent = false;
-      
-      await sendMessage(from, textMsg("✅ *COMPROBANTE RECIBIDO*\n\nLo estamos verificando..."));
-      
-      let imageId = null;
-      let mimeType = null;
-      
-      if (msg.type === "image") {
-        imageId = msg.image.id;
-        mimeType = msg.image.mime_type || "image/jpeg";
-      } else if (msg.type === "document") {
-        if (msg.document.mime_type?.startsWith("image/")) {
-          imageId = msg.document.id;
-          mimeType = msg.document.mime_type;
-        } else {
-          await sendMessage(from, textMsg("❌ El archivo no es una imagen. Envía una foto."));
-          return res.sendStatus(200);
-        }
-      }
-      
-      if (!imageId) {
-        await sendMessage(from, textMsg("❌ Error al procesar la imagen. Intenta de nuevo."));
-        return res.sendStatus(200);
-      }
-      
-      const timestamp = Date.now();
-      const random = Math.floor(Math.random() * 1000);
-      const pagoId = `${from}_${s.sucursal}_${timestamp}_${random}`;
-      s.pagoId = pagoId;
-      
-      const horaActual = new Date().toLocaleString('es-MX', { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        hour12: true
-      });
-      
-      const numeroResumido = resumirNumero(from);
-      
-      const caption = 
-        `🖼️ *COMPROBANTE DE PAGO*\n` +
-        `━━━━━━━━━━━━━━━━━━\n\n` +
-        `🏪 *${sucursal.nombre}*\n` +
-        `👤 *Cliente:* ${numeroResumido}\n` +
-        `💰 *Monto:* $${s.totalTemp} MXN\n` +
-        `🆔 *Pago:* ${timestamp}\n` +
-        `⏰ *Hora:* ${horaActual}`;
-      
-      try {
-        await sendMessage(sucursal.telefono, {
-          type: "image",
-          image: { id: imageId, caption: caption }
-        });
-        console.log(`✅ Imagen reenviada a sucursal`);
-      } catch (error) {
-        console.error(`❌ Error al reenviar imagen:`, error);
-        
-        try {
-          // Método alternativo de descarga y subida
-          const mediaResponse = await fetch(`https://graph.facebook.com/v22.0/${imageId}`, {
-            headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
-          });
-          
-          if (!mediaResponse.ok) throw new Error(`Error al obtener URL`);
-          
-          const mediaData = await mediaResponse.json();
-          const imageUrl = mediaData.url;
-          
-          const imageResponse = await fetch(imageUrl, {
-            headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
-          });
-          
-          const imageBuffer = await imageResponse.buffer();
-          
-          const formData = new FormData();
-          formData.append('file', imageBuffer, {
-            filename: 'comprobante.jpg',
-            contentType: mimeType || 'image/jpeg'
-          });
-          formData.append('messaging_product', 'whatsapp');
-          
-          const uploadResponse = await fetch(`https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/media`, {
-            method: "POST",
-            headers: {
-              'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
-              ...formData.getHeaders()
-            },
-            body: formData
-          });
-          
-          if (!uploadResponse.ok) throw new Error(`Error al subir imagen`);
-          
-          const uploadData = await uploadResponse.json();
-          const newImageId = uploadData.id;
-          
-          await sendMessage(sucursal.telefono, {
-            type: "image",
-            image: { id: newImageId, caption: caption }
-          });
-          
-          console.log(`✅ Imagen enviada con método alternativo`);
-        } catch (altError) {
-          console.error(`❌ Error en método alternativo:`, altError);
-          
-          await sendMessage(sucursal.telefono, textMsg(
-            `⚠️ *COMPROBANTE DE ${numeroResumido}*\nMonto: $${s.totalTemp}\n(No se pudo reenviar la imagen)`
-          ));
-        }
-      }
-      
-      await sendMessage(sucursal.telefono, {
-        type: "interactive",
-        interactive: {
-          type: "button",
-          body: { text: `🔍 *VERIFICAR PAGO - $${s.totalTemp}* (${horaActual})` },
-          action: {
-            buttons: [
-              { type: "reply", reply: { id: `pago_ok_${pagoId}`, title: "✅ CONFIRMAR" } },
-              { type: "reply", reply: { id: `pago_no_${pagoId}`, title: "❌ RECHAZAR" } },
-              { type: "reply", reply: { id: `bloquear_${from}`, title: "🚫 BLOQUEAR" } }
-            ]
-          }
-        }
-      });
-      
-      s.comprobanteEnviado = true;
-      s.step = "esperando_confirmacion";
-      
+      // ... (código de imagen, mantén el tuyo) ...
       return res.sendStatus(200);
     }
     
-    // 🔥 BOTONES DE SUCURSAL
+    // 🔥 BOTONES DE SUCURSAL (VERSIÓN CORREGIDA)
     if (msg.type === "interactive" && msg.interactive?.button_reply) {
       const replyId = msg.interactive.button_reply.id;
       const fromSucursal = msg.from;
       
       console.log(`🔍 Botón: ${replyId} de ${fromSucursal}`);
       
+      // ===== BLOQUEAR CLIENTE =====
       if (replyId.startsWith("bloquear_")) {
         const num = replyId.replace("bloquear_", "");
         blockedNumbers.add(num);
         guardarBloqueados();
-        await sendMessage(fromSucursal, textMsg(`✅ Cliente bloqueado`));
+        await sendMessage(fromSucursal, textMsg(`✅ Cliente ${resumirNumero(num)} bloqueado`));
         return res.sendStatus(200);
       }
       
+      // ===== DESBLOQUEAR CLIENTE =====
       if (replyId.startsWith("desbloquear_")) {
         const num = replyId.replace("desbloquear_", "");
         if (blockedNumbers.has(num)) {
           blockedNumbers.delete(num);
           guardarBloqueados();
-          await sendMessage(fromSucursal, textMsg(`✅ Cliente desbloqueado`));
+          await sendMessage(fromSucursal, textMsg(`✅ Cliente ${resumirNumero(num)} desbloqueado`));
         }
         return res.sendStatus(200);
       }
       
+      // ===== ACEPTAR PEDIDO (CORREGIDO) =====
+      if (replyId.startsWith("aceptar_")) {
+        const pedidoId = replyId.replace("aceptar_", "");
+        console.log(`✅ Sucursal aceptó pedido: ${pedidoId}`);
+        
+        let pedidoEncontrado = false;
+        let sesionEncontrada = null;
+        let clienteEncontrado = null;
+        
+        // Buscar el pedido en todas las sesiones
+        for (const [cliente, s] of Object.entries(sessions)) {
+          if (s.pedidoId === pedidoId) {
+            pedidoEncontrado = true;
+            sesionEncontrada = s;
+            clienteEncontrado = cliente;
+            console.log(`✅ Pedido encontrado - Cliente: ${cliente}, Folio: #${s.folio}`);
+            break;
+          }
+        }
+        
+        if (pedidoEncontrado && sesionEncontrada) {
+          const sucursalPedido = SUCURSALES[sesionEncontrada.sucursal];
+          const numRes = resumirNumero(clienteEncontrado);
+          const tiempoPrep = sesionEncontrada.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
+          
+          // 1️⃣ ENVIAR CONFIRMACIÓN AL CLIENTE (aunque haya expirado)
+          try {
+            await sendMessage(clienteEncontrado, textMsg(
+              `✅ *¡PEDIDO #${sesionEncontrada.folio} ACEPTADO!*\n\n` +
+              `🏪 *${sucursalPedido.nombre}*\n` +
+              `👤 Cliente: ${numRes}\n` +
+              `⏱️ Tiempo estimado: ${tiempoPrep}`
+            ));
+            console.log(`📲 Confirmación enviada al cliente ${numRes}`);
+          } catch (e) {
+            console.log(`⚠️ No se pudo notificar al cliente (sesión expirada?)`);
+          }
+          
+          // 2️⃣ ENVIAR CONFIRMACIÓN A LA SUCURSAL (SIEMPRE)
+          await sendMessage(fromSucursal, textMsg(
+            `✅ *PEDIDO #${sesionEncontrada.folio} ACEPTADO*\n` +
+            `━━━━━━━━━━━━━━━━━━\n\n` +
+            `🏪 *${sucursalPedido.nombre}*\n` +
+            `👤 Cliente: ${numRes}\n` +
+            `📋 Pedido aceptado correctamente\n\n` +
+            `🕒 ${moment().tz("America/Mexico_City").format('hh:mm A')}`
+          ));
+          console.log(`📲 Confirmación enviada a la sucursal`);
+          
+          // 3️⃣ MARCAR COMO COMPLETADO
+          sesionEncontrada.step = "completado";
+          sesionEncontrada.pagoProcesado = true;
+          sesionEncontrada.lastAction = now();
+          
+        } else {
+          console.log(`⚠️ Pedido no encontrado: ${pedidoId}`);
+          await sendMessage(fromSucursal, textMsg(
+            "⚠️ *PEDIDO NO ENCONTRADO*\n\n" +
+            "El pedido ya no existe o expiró.\n" +
+            "Puede que el cliente haya cancelado o el tiempo haya expirado."
+          ));
+        }
+        
+        return res.sendStatus(200);
+      }
+      
+      // ===== RECHAZAR PEDIDO =====
+      if (replyId.startsWith("rechazar_")) {
+        const pedidoId = replyId.replace("rechazar_", "");
+        console.log(`❌ Sucursal rechazó pedido: ${pedidoId}`);
+        
+        for (const [cliente, s] of Object.entries(sessions)) {
+          if (s.pedidoId === pedidoId) {
+            const numRes = resumirNumero(cliente);
+            
+            try {
+              await sendMessage(cliente, textMsg(
+                `❌ *PEDIDO #${s.folio} RECHAZADO*\n\n` +
+                `🏪 *${SUCURSALES[s.sucursal].nombre}*\n` +
+                `👤 Cliente: ${numRes}\n\n` +
+                `Lo sentimos, tu pedido no pudo ser aceptado.\n\n` +
+                `📞 Contacta: ${SUCURSALES[s.sucursal].telefono}`
+              ));
+            } catch (e) {}
+            
+            await sendMessage(fromSucursal, textMsg(
+              `❌ *PEDIDO #${s.folio} RECHAZADO*\n` +
+              `Cliente: ${numRes}`
+            ));
+            
+            s.step = "completado";
+            s.lastAction = now();
+            break;
+          }
+        }
+        return res.sendStatus(200);
+      }
+      
+      // ===== PAGO CONFIRMADO =====
       if (replyId.startsWith("pago_ok_")) {
         const partes = replyId.split("_");
         const cliente = partes[2];
@@ -797,6 +752,7 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
+      // ===== PAGO RECHAZADO =====
       if (replyId.startsWith("pago_no_")) {
         const partes = replyId.split("_");
         const cliente = partes[2];
@@ -831,62 +787,9 @@ app.post("/webhook", async (req, res) => {
         s.lastAction = now();
         return res.sendStatus(200);
       }
-      
-      if (replyId.startsWith("aceptar_")) {
-        const pedidoId = replyId.replace("aceptar_", "");
-        for (const [cliente, s] of Object.entries(sessions)) {
-          if (s.pedidoId === pedidoId) {
-            const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
-            const numRes = resumirNumero(cliente);
-            
-            await sendMessage(cliente, textMsg(
-              `✅ *¡PEDIDO #${s.folio} ACEPTADO!*\n\n` +
-              `🏪 *${SUCURSALES[s.sucursal].nombre}*\n` +
-              `👤 Cliente: ${numRes}\n` +
-              `⏱️ Tiempo: ${tiempoPrep}`
-            ));
-            
-            await sendMessage(fromSucursal, textMsg(
-              `✅ *PEDIDO #${s.folio} ACEPTADO*\nCliente: ${numRes}`
-            ));
-            
-            if (s.pagoMetodo === "Efectivo") {
-              s.step = "completado";
-              s.lastAction = now();
-            }
-            break;
-          }
-        }
-        return res.sendStatus(200);
-      }
-      
-      if (replyId.startsWith("rechazar_")) {
-        const pedidoId = replyId.replace("rechazar_", "");
-        for (const [cliente, s] of Object.entries(sessions)) {
-          if (s.pedidoId === pedidoId) {
-            const numRes = resumirNumero(cliente);
-            
-            await sendMessage(cliente, textMsg(
-              `❌ *PEDIDO #${s.folio} RECHAZADO*\n\n` +
-              `🏪 *${SUCURSALES[s.sucursal].nombre}*\n` +
-              `👤 Cliente: ${numRes}\n\n` +
-              `📞 Contacta: ${SUCURSALES[s.sucursal].telefono}`
-            ));
-            
-            await sendMessage(fromSucursal, textMsg(
-              `❌ *PEDIDO #${s.folio} RECHAZADO*\nCliente: ${numRes}`
-            ));
-            
-            s.step = "completado";
-            s.lastAction = now();
-            break;
-          }
-        }
-        return res.sendStatus(200);
-      }
     }
 
-    // ===== FLUJO NORMAL DEL BOT =====
+    // ===== FLUJO NORMAL DEL BOT (para clientes) =====
     let input =
       msg.interactive?.button_reply?.id ||
       msg.interactive?.list_reply?.id;
@@ -1208,7 +1111,7 @@ app.post("/webhook", async (req, res) => {
         reply = confirmacionFinal(s);
         break;
 
-      // 👇 CASO ASK_PICKUP_NAME CON REINTENTO
+      // CASO ASK_PICKUP_NAME
       case "ask_pickup_name":
         if (!rawText || rawText.length < 3) {
           reply = textMsg("⚠️ Nombre inválido. Intenta de nuevo:");
@@ -1224,21 +1127,16 @@ app.post("/webhook", async (req, res) => {
         const sucursalDestino = SUCURSALES[s.sucursal];
         const resumenPreliminar = buildPreliminarSummary(s);
         
-        // ENVIAR CON REINTENTO
-        console.log(`📤 Enviando pedido #${s.folio} a ${sucursalDestino.nombre} (${sucursalDestino.telefono})`);
+        console.log(`📤 Enviando pedido #${s.folio} a ${sucursalDestino.nombre}`);
         
         try {
           await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-          console.log(`✅ Resumen enviado`);
         } catch (error) {
           console.error(`❌ Error al enviar:`, error);
           setTimeout(async () => {
             try {
               await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-              console.log(`✅ Reintento exitoso`);
-            } catch (e) {
-              console.error(`❌ Falló reintento`);
-            }
+            } catch (e) {}
           }, 2000);
         }
         
@@ -1261,14 +1159,14 @@ app.post("/webhook", async (req, res) => {
           `📋 *PEDIDO #${s.folio} ENVIADO*\n\n` +
           `👤 Cliente: ${resumirNumero(from)}\n\n` +
           "Espera confirmación de la sucursal.\n\n" +
-          "⏱️ *30 minutos para confirmar*"
+          "⏱️ *60 minutos para confirmar*"
         ));
         
         s.step = "esperando_confirmacion_sucursal";
         reply = null;
         break;
 
-      // 👇 CASO CONFIRMACION_FINAL CON REINTENTO
+      // CASO CONFIRMACION_FINAL
       case "confirmacion_final":
         if (input === "confirmar") {
           if (!s.folio) s.folio = obtenerFolio();
@@ -1289,21 +1187,16 @@ app.post("/webhook", async (req, res) => {
             const sucursalDestino = SUCURSALES[s.sucursal];
             const resumenPreliminar = buildPreliminarSummary(s);
             
-            // ENVIAR CON REINTENTO
-            console.log(`📤 Enviando pedido #${s.folio} a ${sucursalDestino.nombre} (${sucursalDestino.telefono})`);
+            console.log(`📤 Enviando pedido #${s.folio} a ${sucursalDestino.nombre}`);
             
             try {
               await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-              console.log(`✅ Resumen enviado`);
             } catch (error) {
               console.error(`❌ Error al enviar:`, error);
               setTimeout(async () => {
                 try {
                   await sendMessage(sucursalDestino.telefono, resumenPreliminar);
-                  console.log(`✅ Reintento exitoso`);
-                } catch (e) {
-                  console.error(`❌ Falló reintento`);
-                }
+                } catch (e) {}
               }, 2000);
             }
             
@@ -1326,7 +1219,7 @@ app.post("/webhook", async (req, res) => {
               `📋 *PEDIDO #${s.folio} ENVIADO*\n\n` +
               `👤 Cliente: ${resumirNumero(from)}\n\n` +
               "Espera confirmación de la sucursal.\n\n" +
-              "⏱️ *30 minutos para confirmar*"
+              "⏱️ *60 minutos para confirmar*"
             ));
             
             s.step = "esperando_confirmacion_sucursal";
@@ -1354,10 +1247,9 @@ app.post("/webhook", async (req, res) => {
         break;
         
       case "esperando_confirmacion_sucursal":
-        reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nTe avisaremos cuando sea aceptado o si pasa más de 30 minutos se cancelará. 🍕");
+        reply = textMsg("⏳ *ESPERANDO CONFIRMACIÓN*\n\nTu pedido está siendo revisado por la sucursal.\n\nTe avisaremos cuando sea aceptado o si pasa más de 60 minutos se cancelará. 🍕");
         break;
         
-      // 👇 CASO COMPLETADO MEJORADO
       case "completado":
         await sendMessage(from, textMsg(
           "✅ *PEDIDO COMPLETADO*\n\n" +
@@ -1913,14 +1805,13 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V22 COMPLETO (Con reintentos y mensaje final) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V23 CORREGIDO (Tiempo aumentado a 60 min) corriendo en puerto ${PORT}`);
   console.log(`📅 Fecha: ${new Date().toDateString()}`);
   console.log(`📌 Folio actual: ${folioActual}`);
   console.log(`📱 Cliente prueba: 5216391946965 → ${resumirNumero("5216391946965")}`);
   console.log(`📱 Sucursal REVOLUCIÓN: 5216391283842 → ${resumirNumero("5216391283842")}`);
-  console.log(`📱 Sucursal LA LABOR: 5216393992508 → ${resumirNumero("5216393992508")}`);
-  console.log(`⏰ Sesión: 30 min (aviso 15 min)`);
-  console.log(`🎁 Oferta: ${ofertaActiva() ? "ACTIVA" : "INACTIVA"}`);
-  console.log(`✅ Reintentos activados - El primer pedido siempre llegará`);
-  console.log(`✅ Mensaje de finalización mejorado`);
+  console.log(`📱 Sucursal LA LABOR: 5216391759607 → ${resumirNumero("5216391759607")}`);
+  console.log(`⏰ Sesión: 60 min (aviso 30 min)`);
+  console.log(`⏰ Tiempo para aceptar: 60 minutos`);
+  console.log(`✅ Sucursal SIEMPRE recibe confirmación aunque el cliente haya expirado`);
 });
