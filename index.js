@@ -190,7 +190,7 @@ const SUCURSALES = {
     nombre: "PIZZERIA DE VILLA LA LABOR",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216393992508", // 👈 NÚMERO CORREGIDO
+    telefono: "5216391759607", // 👈 NÚMERO CORREGIDO
     domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
@@ -1910,7 +1910,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📌 Folio actual: ${folioActual}`);
   console.log(`📱 Cliente prueba: 5216391946965 → ${formatearNumero("5216391946965")}`);
   console.log(`📱 Sucursal REVOLUCIÓN: 5216391283842 → ${formatearNumero("5216391283842")}`);
-  console.log(`📱 Sucursal LA LABOR: 5216393992508 → ${formatearNumero("5216393992508")}`);
+  console.log(`📱 Sucursal LA LABOR: 5216391759607 → ${formatearNumero("5216391759607")}`);
   console.log(`⏰ Tiempo para aceptar: 60 MINUTOS`);
   console.log(`🔄 Reintentos: Cada 5 minutos (máx 3 intentos)`);
   console.log(`✅ Sucursal SIEMPRE recibe confirmación al aceptar`);
