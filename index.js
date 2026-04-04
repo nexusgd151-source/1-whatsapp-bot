@@ -104,7 +104,7 @@ function guardarBloqueados() {
 // 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL
 // =======================
 const OFERTA_ESPECIAL = {
-  activa: true,
+  activa: false,
   nombre: "Pepperoni Grande $100",
   pizza: "pepperoni",
   tamaño: "grande",
