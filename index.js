@@ -101,22 +101,26 @@ function guardarBloqueados() {
 }
 
 // =======================
-// 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL
+// 🎁 CONFIGURACIÓN DE OFERTA ESPECIAL (ENVÍO GRATIS SOLO OBRERA)
 // =======================
 const OFERTA_ESPECIAL = {
-  activa: false,
+  activa: true,  // 👈 CAMBIAR A true PARA ACTIVAR LA OFERTA
   nombre: "Pepperoni Grande $100",
   pizza: "pepperoni",
   tamaño: "grande",
   precio_base: 100,
   precio_normal: 130,
-  dias_validos: [5, 6, 0],
+  dias_validos: [5, 6, 0],  // Viernes, Sábado, Domingo
   
-  mensaje_bienvenida: "🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande - $100\n   ✨ Válido solo este fin de semana",
+  // 🆕 PROMOCIÓN DE ENVÍO GRATIS (SOLO PARA OBRERA)
+  envio_gratis_activo: true,  // 👈 ACTIVAR/DESACTIVAR ENVÍO GRATIS
+  envio_gratis_min_pizzas: 2,  // Mínimo de pizzas para envío gratis
   
-  mensaje_confirmacion: "🎁 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n\n🔥 *Pepperoni Grande - $100*\n\n✅ INCLUYE:\n   • Pizza pepperoni tamaño GRANDE\n   • Precio base: $100\n\n✨ Personaliza con EXTRAS (+$15 c/u):\n   🍖 Pepperoni • 🥓 Jamón • 🌶️ Jalapeño\n   🍍 Piña • 🌭 Chorizo • 🌭 Salchicha Italiana\n   🌭 Salchicha Asar • 🧀 Queso • 🥓 Tocino\n   🧅 Cebolla\n\n⚠️ *Válido solo este fin de semana*\n   Viernes, Sábado y Domingo\n   (No te lo pierdas)",
+  mensaje_bienvenida: "🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande - $100\n🚚 *¡Envío GRATIS en 2+ pizzas!*\n   ⚠️ *Solo en sucursal La Labor*\n✨ Válido solo este fin de semana",
   
-  mensaje_aviso: "⚠️ *¡TE ESTÁS PERDIENDO UNA OFERTA!*\n\n🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande por solo $100\n   (En lugar de $130)\n\n✨ Válido solo este fin de semana\n   Viernes, Sábado y Domingo"
+  mensaje_confirmacion: "🎁 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n\n🔥 *Pepperoni Grande - $100*\n\n✅ INCLUYE:\n   • Pizza pepperoni tamaño GRANDE\n   • Precio base: $100\n\n🚚 *¡ENVÍO GRATIS AL PEDIR 2+ PIZZAS!*\n   ⚠️ *Solo en sucursal La Labor*\n\n✨ Personaliza con EXTRAS (+$15 c/u):\n   🍖 Pepperoni • 🥓 Jamón • 🌶️ Jalapeño\n   🍍 Piña • 🌭 Chorizo • 🌭 Salchicha Italiana\n   🌭 Salchicha Asar • 🧀 Queso • 🥓 Tocino\n   🧅 Cebolla\n\n⚠️ *Válido solo este fin de semana*\n   Viernes, Sábado y Domingo\n   (No te lo pierdas)",
+  
+  mensaje_aviso: "⚠️ *¡TE ESTÁS PERDIENDO UNA OFERTA!*\n\n🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande por solo $100\n   (En lugar de $130)\n🚚 *Envío GRATIS en 2+ pizzas*\n   ⚠️ *Solo en sucursal La Labor*\n\n✨ Válido solo este fin de semana\n   Viernes, Sábado y Domingo"
 };
 
 function ofertaActiva() {
@@ -124,19 +128,19 @@ function ofertaActiva() {
   const hoy = new Date().getDay();
   return OFERTA_ESPECIAL.dias_validos.includes(hoy);
 }
-/*
-// =======================
-// ⏰ CONFIGURACIÓN DE HORARIO (MÉXICO) - VERSIÓN DE PRUEBA (COMENTADA)
-// =======================
-function verificarHorario() {
-  // 🔥 MODO PRUEBA: Siempre abierto
-  console.log("🧪 MODO PRUEBA: Tienda siempre abierta");
-  return { abierto: true };
+
+// 🆕 Función para verificar si aplica envío gratis (SOLO PARA OBRERA)
+function aplicaEnvioGratis(sucursalKey, pizzasCount, delivery) {
+  // Solo aplica para la sucursal Obrera (que tiene domicilio)
+  if (sucursalKey !== "obrera") return false;
+  if (!delivery) return false;
+  if (!ofertaActiva()) return false;
+  if (!OFERTA_ESPECIAL.envio_gratis_activo) return false;
+  return pizzasCount >= OFERTA_ESPECIAL.envio_gratis_min_pizzas;
 }
-*/
 
 // =======================
-// ⏰ VERSIÓN ORIGINAL (ACTIVADA)
+// ⏰ CONFIGURACIÓN DE HORARIO (MÉXICO)
 // =======================
 function verificarHorario() {
   const ahoraMexico = moment().tz("America/Mexico_City");
@@ -149,7 +153,7 @@ function verificarHorario() {
   if (dia === 2) {
     return {
       abierto: false,
-      mensaje: "🕒 *PIZERIA CERRADA (MARTES)*\n\nNuestro horario es de 11:00 AM a 9:00 PM.\nLos martes permanecemos cerrados.\n\nVuelve mañana en nuestro horario de atención. 🍕"
+      mensaje: "🕒 *PIZZERÍA CERRADA (MARTES)*\n\nNuestro horario es de 11:00 AM a 9:00 PM.\nLos martes permanecemos cerrados.\n\nVuelve mañana en nuestro horario de atención. 🍕"
     };
   }
   
@@ -157,7 +161,7 @@ function verificarHorario() {
   if (hora < 11 || hora >= 21) {
     return {
       abierto: false,
-      mensaje: `🕒 *PIZERIA CERRADA*\n\nSon las ${ahoraMexico.format('HH:mm')} hrs (hora México).\nNuestro horario es de 11:00 AM a 9:00 PM.\nVuelve en nuestro horario de atención. 🍕`
+      mensaje: `🕒 *PIZZERÍA CERRADA*\n\nSon las ${ahoraMexico.format('HH:mm')} hrs (hora México).\nNuestro horario es de 11:00 AM a 9:00 PM.\nVuelve en nuestro horario de atención. 🍕`
     };
   }
   
@@ -171,15 +175,15 @@ const TIEMPO_MAXIMO_ACEPTACION = 60 * 60 * 1000; // 60 minutos
 const TIEMPO_REINTENTO = 5 * 60 * 1000; // 5 minutos para reintentar envíos fallidos
 
 // =======================
-// 🏪 CONFIGURACIÓN DE SUCURSALES (CON NÚMERO CORREGIDO)
+// 🏪 CONFIGURACIÓN DE SUCURSALES
 // =======================
 const SUCURSALES = {
   revolucion: {
-    nombre: "PIZZERIA DE VILLA REVOLUCIÓN (Colonia Revolución)",
+    nombre: "PIZZERÍA DE VILLA REVOLUCIÓN (Colonia Revolución)",
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216391283842",
-    domicilio: false,
+    domicilio: false,  // 👈 NO TIENE DOMICILIO
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
       cuenta: "722969010279408583",
@@ -187,11 +191,11 @@ const SUCURSALES = {
     }
   },
   obrera: {
-    nombre: "PIZZERIA DE VILLA LA LABOR",
+    nombre: "PIZZERÍA DE VILLA LA LABOR",
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
-    telefono: "5216393992508", // 👈 NÚMERO CORREGIDO
-    domicilio: true,
+    telefono: "5216393992508",
+    domicilio: true,  // 👈 TIENE DOMICILIO
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
       cuenta: "722969010279408583",
@@ -524,9 +528,16 @@ app.get("/test-business", async (req, res) => {
 // =======================
 // FUNCIONES UI DE OFERTA
 // =======================
-const avisoOferta = () => {
+const avisoOferta = (s) => {
+  let mensaje = OFERTA_ESPECIAL.mensaje_aviso;
+  
+  // Si es Revolución, no mostrar envío gratis
+  if (s.sucursal === "revolucion") {
+    mensaje = mensaje.replace("🚚 *Envío GRATIS en 2+ pizzas*\n   ⚠️ *Solo en sucursal La Labor*\n\n", "");
+  }
+  
   return buttons(
-    OFERTA_ESPECIAL.mensaje_aviso + "\n\n¿Qué deseas hacer?",
+    mensaje + "\n\n¿Qué deseas hacer?",
     [
       { id: "ver_oferta", title: "🎁 VER OFERTA" },
       { id: "continuar_normal", title: "🛒 Continuar normal" },
@@ -535,9 +546,16 @@ const avisoOferta = () => {
   );
 };
 
-const confirmarOferta = () => {
+const confirmarOferta = (s) => {
+  let mensaje = OFERTA_ESPECIAL.mensaje_confirmacion;
+  
+  // Si es Revolución, no mostrar envío gratis
+  if (s.sucursal === "revolucion") {
+    mensaje = mensaje.replace("🚚 *¡ENVÍO GRATIS AL PEDIR 2+ PIZZAS!*\n   ⚠️ *Solo en sucursal La Labor*\n\n", "");
+  }
+  
   return buttons(
-    OFERTA_ESPECIAL.mensaje_confirmacion + "\n\n¿Quieres agregar esta pizza?",
+    mensaje + "\n\n¿Quieres agregar esta pizza?",
     [
       { id: "confirmar_oferta_si", title: "✅ Sí, agregar" },
       { id: "confirmar_oferta_no", title: "❌ No, volver" }
@@ -546,7 +564,7 @@ const confirmarOferta = () => {
 };
 
 // =======================
-// WEBHOOK - POST (VERSIÓN FINAL CORREGIDA)
+// WEBHOOK - POST (CON ENVÍO GRATIS SOLO OBRERA)
 // =======================
 app.post("/webhook", async (req, res) => {
   try {
@@ -677,7 +695,7 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // ===== ACEPTAR PEDIDO (CON CONFIRMACIÓN PARA AMBOS) =====
+      // ACEPTAR PEDIDO
       if (replyId.startsWith("aceptar_")) {
         const pedidoId = replyId.replace("aceptar_", "");
         console.log(`✅ Procesando aceptación de pedido: ${pedidoId}`);
@@ -692,7 +710,6 @@ app.post("/webhook", async (req, res) => {
             const telefonoFormateado = formatearNumero(cliente);
             const tiempoPrep = s.delivery ? TIEMPO_PREPARACION.domicilio : TIEMPO_PREPARACION.recoger;
             
-            // 1️⃣ NOTIFICAR AL CLIENTE
             try {
               await sendMessage(cliente, textMsg(
                 "✅ *¡PEDIDO ACEPTADO!*\n\n" +
@@ -706,7 +723,6 @@ app.post("/webhook", async (req, res) => {
               console.log(`⚠️ No se pudo notificar al cliente`);
             }
             
-            // 2️⃣ NOTIFICAR A LA SUCURSAL (SIEMPRE)
             await sendMessage(fromSucursal, textMsg(
               `✅ *PEDIDO ACEPTADO*\n\n` +
               `Cliente: ${telefonoFormateado}\n` +
@@ -715,7 +731,6 @@ app.post("/webhook", async (req, res) => {
             ));
             console.log(`✅ Sucursal notificada sobre pedido #${s.folio}`);
             
-            // Marcar como completado
             s.step = "completado";
             s.pagoProcesado = true;
             s.lastAction = now();
@@ -731,7 +746,7 @@ app.post("/webhook", async (req, res) => {
           ));
         }
         
-        return res.sendStatus(200); // 🚨 IMPORTANTE: Salir aquí para que no siga el flujo
+        return res.sendStatus(200);
       }
       
       // RECHAZAR PEDIDO
@@ -761,7 +776,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // Cualquier otro botón de sucursal no manejado
       return res.sendStatus(200);
     }
 
@@ -968,7 +982,7 @@ app.post("/webhook", async (req, res) => {
           reply = pizzaList();
         } else if (input === "ver_oferta" && ofertaActiva()) {
           s.step = "confirmar_oferta";
-          reply = confirmarOferta();
+          reply = confirmarOferta(s);
         } else if (input === "menu") {
           reply = merge(menuText(s), welcomeMessage(s));
         } else {
@@ -986,7 +1000,7 @@ app.post("/webhook", async (req, res) => {
         
         if (input === "pepperoni" && ofertaActiva()) {
           s.step = "aviso_oferta";
-          reply = avisoOferta();
+          reply = avisoOferta(s);
         } else {
           s.currentPizza.type = input;
           s.currentPizza.extras = [];
@@ -1000,7 +1014,7 @@ app.post("/webhook", async (req, res) => {
       case "aviso_oferta":
         if (input === "ver_oferta") {
           s.step = "confirmar_oferta";
-          reply = confirmarOferta();
+          reply = confirmarOferta(s);
         } else if (input === "continuar_normal") {
           s.currentPizza.type = s.pizzaSeleccionada;
           s.currentPizza.extras = [];
@@ -1012,7 +1026,7 @@ app.post("/webhook", async (req, res) => {
           s.step = "welcome";
           reply = welcomeMessage(s);
         } else {
-          reply = merge(textMsg("❌ Opción no válida"), avisoOferta());
+          reply = merge(textMsg("❌ Opción no válida"), avisoOferta(s));
         }
         break;
 
@@ -1031,7 +1045,7 @@ app.post("/webhook", async (req, res) => {
           s.step = "welcome";
           reply = welcomeMessage(s);
         } else {
-          reply = merge(textMsg("❌ Opción no válida"), confirmarOferta());
+          reply = merge(textMsg("❌ Opción no válida"), confirmarOferta(s));
         }
         break;
 
@@ -1116,10 +1130,71 @@ app.post("/webhook", async (req, res) => {
             opciones
           );
         } else if (input === "no") {
+          // 🆕 VERIFICAR SI APLICA ENVÍO GRATIS (SOLO PARA OBRERA)
+          const pizzasCount = s.pizzas.length;
+          
+          if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, pizzasCount, true)) {
+            // Ya tiene 2+ pizzas - mostrar mensaje de felicitaciones
+            await sendMessage(from, textMsg(
+              "🎉 *¡FELICIDADES!*\n\n" +
+              `Tienes ${pizzasCount} pizzas en tu pedido.\n` +
+              "¡El envío a domicilio es *GRATIS*! 🚚\n\n" +
+              "Continúa para finalizar tu pedido."
+            ));
+          } else if (s.sucursal === "obrera" && pizzasCount === 1 && ofertaActiva() && OFERTA_ESPECIAL.envio_gratis_activo) {
+            // Solo tiene 1 pizza - recordatorio
+            s.step = "preguntar_agregar_para_envio";
+            reply = buttons(
+              "💡 *¿SABÍAS QUE...?*\n\n" +
+              "Si agregas 1 pizza más, ¡el envío a domicilio es *GRATIS*! 🚚\n\n" +
+              "¿Quieres agregar otra pizza para aprovechar la promoción?",
+              [
+                { id: "si_agregar_para_envio", title: "✅ Sí, agregar" },
+                { id: "no_continuar_sin_envio", title: "❌ No, continuar" }
+              ]
+            );
+            break;
+          }
+          
           s.step = "delivery_method";
           reply = deliveryButtons(s);
         } else {
           reply = merge(textMsg("❌ Opción no válida"), anotherPizza());
+        }
+        break;
+        
+      // 🆕 NUEVO CASE PARA PREGUNTAR SI QUIERE AGREGAR PARA ENVÍO GRATIS
+      case "preguntar_agregar_para_envio":
+        if (input === "si_agregar_para_envio") {
+          s.step = "elegir_tipo_pizza";
+          const opciones = [
+            { id: "normal", title: "🍕 Pizza normal" }
+          ];
+          
+          if (ofertaActiva()) {
+            opciones.unshift({ id: "otra_oferta", title: "🎁 Otra oferta" });
+          }
+          
+          opciones.push({ id: "cancelar", title: "❌ Cancelar" });
+          
+          reply = buttons(
+            "🍕 *¡APROVECHA EL ENVÍO GRATIS!*\n\n" +
+            "Agrega otra pizza y el envío va por nuestra cuenta.\n\n" +
+            "¿Qué tipo de pizza quieres?",
+            opciones
+          );
+        } else if (input === "no_continuar_sin_envio") {
+          s.step = "delivery_method";
+          reply = deliveryButtons(s);
+        } else {
+          reply = buttons(
+            "💡 *¿Quieres agregar otra pizza?*\n\n" +
+            "Con 2+ pizzas, ¡el envío es GRATIS!",
+            [
+              { id: "si_agregar_para_envio", title: "✅ Sí, agregar" },
+              { id: "no_continuar_sin_envio", title: "❌ No, continuar" }
+            ]
+          );
         }
         break;
 
@@ -1401,7 +1476,12 @@ const welcomeMessage = (s) => {
   let mensaje = `🏪 *${suc.nombre}*\n\n`;
   
   if (ofertaActiva()) {
-    mensaje += `${OFERTA_ESPECIAL.mensaje_bienvenida}\n\n`;
+    if (s.sucursal === "obrera") {
+      mensaje += `${OFERTA_ESPECIAL.mensaje_bienvenida}\n\n`;
+    } else {
+      // Para Revolución, mostrar oferta pero sin envío gratis
+      mensaje += "🎉 *OFERTA ESPECIAL POR TIEMPO LIMITADO*\n🔥 Pepperoni Grande - $100\n✨ Válido solo este fin de semana\n\n";
+    }
   }
   
   mensaje += "¿Qué deseas hacer?";
@@ -1428,7 +1508,11 @@ const menuText = (s) => {
   let menu = `📖 *MENÚ - ${suc.nombre}*\n\n`;
   
   if (ofertaActiva()) {
-    menu += `🎁 *OFERTA ESPECIAL:* Pepperoni Grande $100\n\n`;
+    menu += `🎁 *OFERTA ESPECIAL:* Pepperoni Grande $100\n`;
+    if (s.sucursal === "obrera" && OFERTA_ESPECIAL.envio_gratis_activo) {
+      menu += `🚚 *Envío GRATIS en 2+ pizzas*\n`;
+    }
+    menu += `\n`;
   }
   
   menu += `🍕 Pepperoni: $130 / $180\n` +
@@ -1436,9 +1520,15 @@ const menuText = (s) => {
     `🍕 Hawaiana: $150 / $220\n` +
     `🍕 Mexicana: $200 / $250\n\n` +
     `🧀 Orilla de queso: +$40\n` +
-    `➕ Extras: $15 c/u\n` +
-    `🚚 Envío: +$40\n\n` +
-    `📍 ${suc.direccion}\n` +
+    `➕ Extras: $15 c/u\n`;
+  
+  if (suc.domicilio) {
+    menu += `🚚 Envío: +$40\n`;
+  } else {
+    menu += `🏪 Solo recoger en tienda\n`;
+  }
+  
+  menu += `\n📍 ${suc.direccion}\n` +
     `🕒 ${suc.horario}`;
   
   return textMsg(menu);
@@ -1537,7 +1627,12 @@ const deliveryButtons = (s) => {
   const opciones = [];
   
   if (suc.domicilio) {
-    opciones.push({ id: "domicilio", title: "🚚 A domicilio (+$40)" });
+    // Solo mostrar GRATIS si es Obrera y aplica la promoción
+    if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
+      opciones.push({ id: "domicilio", title: "🚚 A domicilio (GRATIS)" });
+    } else {
+      opciones.push({ id: "domicilio", title: "🚚 A domicilio (+$40)" });
+    }
   }
   opciones.push({ id: "recoger", title: "🏪 Recoger en tienda" });
   opciones.push({ id: "cancelar", title: "❌ Cancelar" });
@@ -1569,11 +1664,9 @@ const paymentForzadoMessage = (s) => {
 const confirmacionFinal = (s) => {
   const total = calcularTotal(s);
   const suc = SUCURSALES[s.sucursal];
-  // 👇 AGREGAR ESTA LÍNEA para formatear el número
   const telefonoFormateado = formatearNumero(s.clientNumber);
   
   let resumen = `📋 *CONFIRMA TU PEDIDO - #${s.folio || "Nuevo"}*\n\n`;
-  // 👇 AGREGAR EL CLIENTE FORMATEADO AQUÍ
   resumen += `👤 *Cliente:* ${telefonoFormateado}\n\n`;
   
   s.pizzas.forEach((p, i) => {
@@ -1594,6 +1687,16 @@ const confirmacionFinal = (s) => {
   });
   
   resumen += `\n💰 *TOTAL: $${total}*\n`;
+  
+  // Solo mostrar envío gratis si es Obrera y aplica
+  if (s.delivery) {
+    if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
+      resumen += `🚚 Envío: *GRATIS* (Promoción 2+ pizzas)\n`;
+    } else {
+      resumen += `🚚 Envío: +$40\n`;
+    }
+  }
+  
   resumen += `💳 Pago: ${s.pagoMetodo}\n\n`;
   resumen += "¿Todo correcto?";
   
@@ -1603,6 +1706,7 @@ const confirmacionFinal = (s) => {
   ]);
 };
 
+// 🆕 FUNCIÓN calcularTotal ACTUALIZADA (SOLO OBRERA)
 const calcularTotal = (s) => {
   let total = 0;
   
@@ -1617,17 +1721,23 @@ const calcularTotal = (s) => {
     }
   });
   
-  if (s.delivery) total += PRICES.envio.precio;
+  // Solo aplicar envío gratis para Obrera
+  if (s.delivery) {
+    if (!aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
+      total += PRICES.envio.precio;
+    }
+  }
   
   return total;
 };
 
+// 🆕 FUNCIÓN buildPreliminarSummary ACTUALIZADA (SOLO OBRERA)
 const buildPreliminarSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
   let total = 0;
   let text = `📋 *PEDIDO #${s.folio} POR CONFIRMAR*\n🏪 ${suc.nombre}\n\n`;
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
-  text += `👤 *Cliente:* ${s.clientNumber}\n\n`;
+  text += `👤 *Cliente:* ${formatearNumero(s.clientNumber)}\n\n`;
   
   s.pizzas.forEach((p, i) => {
     if (p.es_oferta) {
@@ -1661,8 +1771,14 @@ const buildPreliminarSummary = (s) => {
   text += `💰 *TOTAL: $${total}*\n`;
   
   if (s.delivery) {
-    text += `🚚 *Domicilio*\n`;
-    text += `   Envío: +$${PRICES.envio.precio}\n`;
+    if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
+      text += `🚚 *Domicilio*\n`;
+      text += `   Envío: 🎉 *GRATIS* (Promoción 2+ pizzas)\n`;
+    } else {
+      text += `🚚 *Domicilio*\n`;
+      text += `   Envío: +$${PRICES.envio.precio}\n`;
+      total += PRICES.envio.precio;
+    }
     text += `   📍 ${s.address}\n`;
     text += `   📞 ${s.phone}\n`;
   } else {
@@ -1676,16 +1792,15 @@ const buildPreliminarSummary = (s) => {
   return textMsg(text);
 };
 
+// 🆕 FUNCIÓN buildClienteSummary ACTUALIZADA (SOLO OBRERA)
 const buildClienteSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
-  // 👇 AGREGAR ESTA LÍNEA para formatear el número
   const telefonoFormateado = formatearNumero(s.clientNumber);
   let total = 0;
   
   let text = `✅ *PEDIDO #${s.folio} CONFIRMADO*\n`;
   text += `🏪 ${suc.nombre}\n`;
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
-  // 👇 USAR la variable formateada aquí
   text += `👤 *Cliente:* ${telefonoFormateado}\n\n`;
   
   s.pizzas.forEach((p, i) => {
@@ -1720,9 +1835,14 @@ const buildClienteSummary = (s) => {
   text += `━━━━━━━━━━━━━━━━━━\n`;
   
   if (s.delivery) {
-    total += PRICES.envio.precio;
-    text += `🚚 *Envío a domicilio*\n`;
-    text += `   +$${PRICES.envio.precio}\n`;
+    if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
+      text += `🚚 *Envío a domicilio*\n`;
+      text += `   🎉 *GRATIS* (Promoción 2+ pizzas)\n`;
+    } else {
+      total += PRICES.envio.precio;
+      text += `🚚 *Envío a domicilio*\n`;
+      text += `   +$${PRICES.envio.precio}\n`;
+    }
     text += `📍 ${s.address}\n`;
     text += `📞 ${s.phone}\n\n`;
   } else {
@@ -1739,16 +1859,16 @@ const buildClienteSummary = (s) => {
   return textMsg(text);
 };
 
+// 🆕 FUNCIÓN buildNegocioSummary ACTUALIZADA (SOLO OBRERA)
 const buildNegocioSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
-  // 👇 APLICAR formatearNumero AQUÍ
   const telefonoFormateado = formatearNumero(s.clientNumber);
   let total = 0;
   
   let text = `🛎️ *PEDIDO #${s.folio} CONFIRMADO*\n`;
   text += `🏪 ${suc.nombre}\n`;
   text += `━━━━━━━━━━━━━━━━━━\n\n`;
-  text += `👤 *Cliente:* ${telefonoFormateado}\n\n`; // 👈 AHORA SALE FORMATEADO
+  text += `👤 *Cliente:* ${telefonoFormateado}\n\n`;
   
   s.pizzas.forEach((p, i) => {
     if (p.es_oferta) {
@@ -1782,8 +1902,14 @@ const buildNegocioSummary = (s) => {
   text += `💰 *TOTAL: $${total}*\n`;
   
   if (s.delivery) {
-    text += `🚚 *Domicilio*\n`;
-    text += `   Envío: +$${PRICES.envio.precio}\n`;
+    if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
+      text += `🚚 *Domicilio*\n`;
+      text += `   Envío: 🎉 *GRATIS* (Promoción 2+ pizzas)\n`;
+    } else {
+      text += `🚚 *Domicilio*\n`;
+      text += `   Envío: +$${PRICES.envio.precio}\n`;
+      total += PRICES.envio.precio;
+    }
     text += `   📍 ${s.address}\n`;
     text += `   📞 ${s.phone}\n`;
   } else {
@@ -1905,14 +2031,13 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V26 - CORREGIDO (Número La Labor actualizado) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V28 - ENVÍO GRATIS SOLO OBRERA corriendo en puerto ${PORT}`);
   console.log(`📅 Fecha: ${new Date().toDateString()}`);
   console.log(`📌 Folio actual: ${folioActual}`);
-  console.log(`📱 Cliente prueba: 5216391946965 → ${formatearNumero("5216391946965")}`);
-  console.log(`📱 Sucursal REVOLUCIÓN: 5216391283842 → ${formatearNumero("5216391283842")}`);
-  console.log(`📱 Sucursal LA LABOR: 5216393992508 → ${formatearNumero("5216393992508")}`);
+  console.log(`🎁 Oferta especial: ${ofertaActiva() ? 'ACTIVA' : 'INACTIVA'}`);
+  console.log(`🚚 Envío gratis: ${OFERTA_ESPECIAL.envio_gratis_activo ? 'ACTIVO' : 'INACTIVO'} (mínimo ${OFERTA_ESPECIAL.envio_gratis_min_pizzas} pizzas) - SOLO OBRERA`);
+  console.log(`📱 Sucursal REVOLUCIÓN: ${SUCURSALES.revolucion.telefono} (domicilio: ${SUCURSALES.revolucion.domicilio ? 'SÍ' : 'NO'})`);
+  console.log(`📱 Sucursal LA LABOR: ${SUCURSALES.obrera.telefono} (domicilio: ${SUCURSALES.obrera.domicilio ? 'SÍ' : 'NO'})`);
   console.log(`⏰ Tiempo para aceptar: 60 MINUTOS`);
   console.log(`🔄 Reintentos: Cada 5 minutos (máx 3 intentos)`);
-  console.log(`✅ Sucursal SIEMPRE recibe confirmación al aceptar`);
-  console.log(`✅ Flujo de sucursal separado del flujo de clientes`);
 });
