@@ -101,46 +101,21 @@ function guardarBloqueados() {
 }
 
 // =======================
-// 🎁 CONFIGURACIÓN DE PROMOCIONES
+// 🚚 PROMOCIÓN DE ENVÍO GRATIS (2+ PIZZAS CUALQUIERA)
 // =======================
-
-// 🚚 PROMOCIÓN DE ENVÍO GRATIS (2+ PIZZAS CUALQUIERA) - NO SE MUESTRA AL INICIO
 const PROMO_ENVIO_GRATIS = {
   activa: true,  // 👈 ACTIVAR/DESACTIVAR ENVÍO GRATIS
   min_pizzas: 2,  // Mínimo de pizzas para envío gratis
   dias_validos: [5, 6, 0],  // Viernes, Sábado, Domingo
   
-  // Mensaje cuando se ACTIVA la promoción (2+ pizzas)
+  // Mensaje cuando se ACTIVA la promoción (al llegar a 2 pizzas)
   mensaje_activacion: "🎉 *¡FELICIDADES! ¡ENVÍO GRATIS ACTIVADO!* 🚚\n\n" +
     "Por llevarte 2 o más pizzas, ¡el envío a domicilio es *TOTALMENTE GRATIS*!\n\n" +
     "Disfruta de esta promoción exclusiva. 🍕✨",
   
-  // Mensaje tip cuando lleva 1 pizza (opcional)
+  // Mensaje tip cuando lleva 1 pizza
   mensaje_tip: "💡 *TIP:* Agrega 1 pizza más y ¡obtén ENVÍO GRATIS! 🚚"
 };
-
-// OFERTA ESPECIAL DE PIZZA (INDEPENDIENTE)
-const OFERTA_PIZZA = {
-  activa: true,  // 👈 CAMBIAR A true PARA ACTIVAR LA OFERTA DE PIZZA
-  nombre: "Pepperoni Grande $100",
-  pizza: "pepperoni",
-  tamaño: "grande",
-  precio_base: 100,
-  precio_normal: 130,
-  dias_validos: [5, 6, 0],  // Viernes, Sábado, Domingo
-  
-  mensaje_bienvenida: "🎉 *OFERTA ESPECIAL*\n🔥 Pepperoni Grande - $100\n✨ Válido solo este fin de semana",
-  
-  mensaje_confirmacion: "🎁 *OFERTA ESPECIAL*\n\n🔥 *Pepperoni Grande - $100*\n\n✅ INCLUYE:\n   • Pizza pepperoni tamaño GRANDE\n   • Precio base: $100\n\n✨ Personaliza con EXTRAS (+$15 c/u):\n   🍖 Pepperoni • 🥓 Jamón • 🌶️ Jalapeño\n   🍍 Piña • 🌭 Chorizo • 🌭 Salchicha Italiana\n   🌭 Salchicha Asar • 🧀 Queso • 🥓 Tocino\n   🧅 Cebolla\n\n⚠️ *Válido solo este fin de semana*",
-  
-  mensaje_aviso: "⚠️ *¡OFERTA DISPONIBLE!*\n\n🎉 *OFERTA ESPECIAL*\n🔥 Pepperoni Grande por solo $100\n   (En lugar de $130)\n\n✨ Válido solo este fin de semana"
-};
-
-function ofertaPizzaActiva() {
-  if (!OFERTA_PIZZA.activa) return false;
-  const hoy = new Date().getDay();
-  return OFERTA_PIZZA.dias_validos.includes(hoy);
-}
 
 function promoEnvioGratisActiva() {
   if (!PROMO_ENVIO_GRATIS.activa) return false;
@@ -326,13 +301,11 @@ const resetSession = (from) => {
     warningSent: false,
     pedidoId: null,
     pagoId: null,
-    pizzaSeleccionada: null,
-    es_oferta: false,
     pedidoEnviadoEn: null,
     folio: null,
     reintentos: 0,
     ultimoReintento: null,
-    envioGratisNotificado: false  // 🆕 Para no repetir el mensaje de activación
+    envioGratisNotificado: false  // Para no repetir el mensaje de activación
   };
 };
 
@@ -542,31 +515,8 @@ app.get("/test-business", async (req, res) => {
 });
 
 // =======================
-// FUNCIONES UI
+// 🆕 FUNCIÓN PARA VERIFICAR Y NOTIFICAR ENVÍO GRATIS
 // =======================
-
-const avisoOfertaPizza = () => {
-  return buttons(
-    OFERTA_PIZZA.mensaje_aviso + "\n\n¿Qué deseas hacer?",
-    [
-      { id: "ver_oferta", title: "🎁 VER OFERTA" },
-      { id: "continuar_normal", title: "🛒 Pizza normal" },
-      { id: "volver_inicio", title: "🔄 Volver al inicio" }
-    ]
-  );
-};
-
-const confirmarOfertaPizza = () => {
-  return buttons(
-    OFERTA_PIZZA.mensaje_confirmacion + "\n\n¿Quieres agregar esta pizza?",
-    [
-      { id: "confirmar_oferta_si", title: "✅ Sí, agregar" },
-      { id: "confirmar_oferta_no", title: "❌ No, volver" }
-    ]
-  );
-};
-
-// 🆕 Función para verificar y notificar envío gratis
 async function verificarYNotificarEnvioGratis(s, from) {
   // Solo para Obrera y si la promo está activa
   if (s.sucursal !== "obrera" || !promoEnvioGratisActiva()) return;
@@ -986,9 +936,6 @@ app.post("/webhook", async (req, res) => {
         if (input === "pedido") {
           s.step = "pizza_type";
           reply = pizzaList(s);
-        } else if (input === "ver_oferta" && ofertaPizzaActiva()) {
-          s.step = "confirmar_oferta";
-          reply = confirmarOfertaPizza();
         } else if (input === "menu") {
           reply = merge(menuText(s), welcomeMessage(s));
         } else {
@@ -1002,57 +949,13 @@ app.post("/webhook", async (req, res) => {
           break;
         }
         
-        s.pizzaSeleccionada = input;
-        
-        if (input === "pepperoni" && ofertaPizzaActiva()) {
-          s.step = "aviso_oferta";
-          reply = avisoOfertaPizza();
-        } else {
-          s.currentPizza.type = input;
-          s.currentPizza.extras = [];
-          s.currentPizza.crust = false;
-          s.currentPizza.es_oferta = false;
-          s.step = "size";
-          reply = sizeButtons(input);
-        }
-        break;
-
-      case "aviso_oferta":
-        if (input === "ver_oferta") {
-          s.step = "confirmar_oferta";
-          reply = confirmarOfertaPizza();
-        } else if (input === "continuar_normal") {
-          s.currentPizza.type = s.pizzaSeleccionada;
-          s.currentPizza.extras = [];
-          s.currentPizza.crust = false;
-          s.currentPizza.es_oferta = false;
-          s.step = "size";
-          reply = sizeButtons(s.pizzaSeleccionada);
-        } else if (input === "volver_inicio") {
-          s.step = "welcome";
-          reply = welcomeMessage(s);
-        } else {
-          reply = merge(textMsg("❌ Opción no válida"), avisoOfertaPizza());
-        }
-        break;
-
-      case "confirmar_oferta":
-        if (input === "confirmar_oferta_si") {
-          s.currentPizza = {
-            type: OFERTA_PIZZA.pizza,
-            size: OFERTA_PIZZA.tamaño,
-            extras: [],
-            crust: false,
-            es_oferta: true
-          };
-          s.step = "ask_extra";
-          reply = askExtra();
-        } else if (input === "confirmar_oferta_no") {
-          s.step = "welcome";
-          reply = welcomeMessage(s);
-        } else {
-          reply = merge(textMsg("❌ Opción no válida"), confirmarOfertaPizza());
-        }
+        s.currentPizza = {
+          type: input,
+          extras: [],
+          crust: false
+        };
+        s.step = "size";
+        reply = sizeButtons(input);
         break;
 
       case "size":
@@ -1126,50 +1029,13 @@ app.post("/webhook", async (req, res) => {
 
       case "another_pizza":
         if (input === "si") {
-          s.step = "elegir_tipo_pizza";
-          const opciones = [
-            { id: "normal", title: "🍕 Pizza normal" }
-          ];
-          
-          if (ofertaPizzaActiva()) {
-            opciones.unshift({ id: "otra_oferta", title: "🎁 Pizza oferta" });
-          }
-          
-          opciones.push({ id: "cancelar", title: "❌ Cancelar" });
-          
-          reply = buttons(
-            "🍕 *¿QUÉ TIPO DE PIZZA QUIERES?*\n\n" +
-            (ofertaPizzaActiva() ? "🎁 Oferta especial disponible\n" : "") +
-            "Elige una opción:",
-            opciones
-          );
+          s.step = "pizza_type";
+          reply = pizzaList(s);
         } else if (input === "no") {
           s.step = "delivery_method";
           reply = deliveryButtons(s);
         } else {
           reply = merge(textMsg("❌ Opción no válida"), anotherPizza(s));
-        }
-        break;
-
-      case "elegir_tipo_pizza":
-        if (input === "otra_oferta" && ofertaPizzaActiva()) {
-          s.currentPizza = {
-            type: OFERTA_PIZZA.pizza,
-            size: OFERTA_PIZZA.tamaño,
-            extras: [],
-            crust: false,
-            es_oferta: true
-          };
-          s.step = "ask_extra";
-          reply = askExtra();
-        } else if (input === "normal") {
-          s.step = "pizza_type";
-          reply = pizzaList(s);
-        } else if (input === "cancelar") {
-          delete sessions[from];
-          reply = merge(textMsg("❌ Pedido cancelado"), seleccionarSucursal());
-        } else {
-          reply = merge(textMsg("❌ Opción no válida"), welcomeMessage(s));
         }
         break;
 
@@ -1424,36 +1290,19 @@ const seleccionarSucursal = () => {
 
 const welcomeMessage = (s) => {
   const suc = SUCURSALES[s.sucursal];
-  const opciones = [];
   
   let mensaje = `🏪 *${suc.nombre}*\n\n`;
-  
-  // Solo mostrar oferta de pizza, NO envío gratis
-  if (ofertaPizzaActiva()) {
-    mensaje += `🎁 *OFERTA:* Pepperoni Grande $100\n\n`;
-  }
-  
   mensaje += "¿Qué deseas hacer?";
   
-  if (ofertaPizzaActiva()) {
-    opciones.push({ id: "ver_oferta", title: "🎁 VER OFERTA" });
-  }
-  
-  opciones.push(
+  return buttons(mensaje, [
     { id: "pedido", title: "🛒 Hacer pedido" },
     { id: "menu", title: "📖 Ver menú" }
-  );
-  
-  return buttons(mensaje, opciones);
+  ]);
 };
 
 const menuText = (s) => {
   const suc = SUCURSALES[s.sucursal];
   let menu = `📖 *MENÚ - ${suc.nombre}*\n\n`;
-  
-  if (ofertaPizzaActiva()) {
-    menu += `🎁 *OFERTA ESPECIAL:* Pepperoni Grande $100\n\n`;
-  }
   
   menu += `🍕 Pepperoni: $130 / $180\n` +
     `🍕 Carnes frías: $170 / $220\n` +
@@ -1477,7 +1326,7 @@ const menuText = (s) => {
 const pizzaList = (s) => {
   let mensaje = "🍕 *ELIGE TU PIZZA*";
   
-  // Tip sutil si está en Obrera y tiene 1 pizza
+  // Tip sutil si está en Obrera, promo activa y tiene 1 pizza
   if (s.sucursal === "obrera" && promoEnvioGratisActiva() && s.pizzas.length === 1) {
     mensaje += "\n\n💡 *TIP:* ¡1 pizza más = Envío GRATIS!";
   }
@@ -1561,7 +1410,7 @@ const askMoreExtras = () => {
 const anotherPizza = (s) => {
   let mensaje = "🍕 *¿OTRA PIZZA?*";
   
-  // Tip sutil si está en Obrera y tiene 1 pizza
+  // Tip sutil si está en Obrera, promo activa y tiene 1 pizza
   if (s.sucursal === "obrera" && promoEnvioGratisActiva() && s.pizzas.length === 1) {
     mensaje += "\n\n💡 *¡1 pizza más = Envío GRATIS!*";
   }
@@ -1621,19 +1470,11 @@ const confirmacionFinal = (s) => {
   resumen += `👤 *Cliente:* ${telefonoFormateado}\n\n`;
   
   s.pizzas.forEach((p, i) => {
-    if (p.es_oferta) {
-      resumen += `🎁 Pizza ${i+1}: Pepperoni Grande (Oferta $100)\n`;
-      if (p.extras?.length) {
-        const extrasLista = p.extras.map(e => `${EXTRAS[e].emoji} ${EXTRAS[e].nombre}`).join(", ");
-        resumen += `   ➕ Extras: ${extrasLista} (+$${p.extras.length * 15})\n`;
-      }
-    } else {
-      resumen += `🍕 Pizza ${i+1}: ${PRICES[p.type].nombre} ${p.size}\n`;
-      if (p.crust) resumen += `   🧀 Orilla (+$40)\n`;
-      if (p.extras?.length) {
-        const extrasLista = p.extras.map(e => `${EXTRAS[e].emoji} ${EXTRAS[e].nombre}`).join(", ");
-        resumen += `   ➕ Extras: ${extrasLista} (+$${p.extras.length * 15})\n`;
-      }
+    resumen += `🍕 Pizza ${i+1}: ${PRICES[p.type].nombre} ${p.size}\n`;
+    if (p.crust) resumen += `   🧀 Orilla (+$40)\n`;
+    if (p.extras?.length) {
+      const extrasLista = p.extras.map(e => `${EXTRAS[e].emoji} ${EXTRAS[e].nombre}`).join(", ");
+      resumen += `   ➕ Extras: ${extrasLista} (+$${p.extras.length * 15})\n`;
     }
   });
   
@@ -1661,14 +1502,9 @@ const calcularTotal = (s) => {
   let total = 0;
   
   s.pizzas.forEach(p => {
-    if (p.es_oferta) {
-      total += OFERTA_PIZZA.precio_base;
-      total += p.extras.length * PRICES.extra.precio;
-    } else {
-      total += PRICES[p.type][p.size];
-      if (p.crust) total += PRICES.orilla_queso.precio;
-      total += p.extras.length * PRICES.extra.precio;
-    }
+    total += PRICES[p.type][p.size];
+    if (p.crust) total += PRICES.orilla_queso.precio;
+    total += p.extras.length * PRICES.extra.precio;
   });
   
   // Envío gratis para 2+ pizzas en Obrera
@@ -1690,31 +1526,20 @@ const buildPreliminarSummary = (s) => {
   text += `👤 *Cliente:* ${formatearNumero(s.clientNumber)}\n\n`;
   
   s.pizzas.forEach((p, i) => {
-    if (p.es_oferta) {
-      const extrasTotal = p.extras.length * PRICES.extra.precio;
-      total += OFERTA_PIZZA.precio_base + extrasTotal;
-      
-      text += `🎁 *Pizza ${i+1} (Oferta)*\n`;
-      text += `   Pepperoni Grande - $${OFERTA_PIZZA.precio_base}\n`;
-      if (p.extras?.length) {
-        text += `   ➕ Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
-      }
-    } else {
-      const precio = PRICES[p.type][p.size];
-      total += precio;
-      text += `🍕 *Pizza ${i+1}*\n`;
-      text += `   ${p.type} (${p.size})\n`;
-      if (p.crust) {
-        total += PRICES.orilla_queso.precio;
-        text += `   🧀 Orilla de queso (+$40)\n`;
-      }
-      if (p.extras?.length) {
-        const extrasTotal = p.extras.length * PRICES.extra.precio;
-        total += extrasTotal;
-        text += `   ➕ Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
-      }
-      text += `   $${precio}\n`;
+    const precio = PRICES[p.type][p.size];
+    total += precio;
+    text += `🍕 *Pizza ${i+1}*\n`;
+    text += `   ${p.type} (${p.size})\n`;
+    if (p.crust) {
+      total += PRICES.orilla_queso.precio;
+      text += `   🧀 Orilla de queso (+$40)\n`;
     }
+    if (p.extras?.length) {
+      const extrasTotal = p.extras.length * PRICES.extra.precio;
+      total += extrasTotal;
+      text += `   ➕ Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
+    }
+    text += `   $${precio}\n`;
   });
   
   text += `\n━━━━━━━━━━━━━━━━━━\n`;
@@ -1754,32 +1579,20 @@ const buildClienteSummary = (s) => {
   text += `👤 *Cliente:* ${telefonoFormateado}\n\n`;
   
   s.pizzas.forEach((p, i) => {
-    if (p.es_oferta) {
-      const extrasTotal = p.extras.length * PRICES.extra.precio;
-      total += OFERTA_PIZZA.precio_base + extrasTotal;
-      
-      text += `🎁 *Pizza ${i+1} (Oferta)*\n`;
-      text += `   Pepperoni Grande - $${OFERTA_PIZZA.precio_base}\n`;
-      if (p.extras?.length) {
-        text += `   ➕ Extras: ${p.extras.map(e => EXTRAS[e].emoji + " " + EXTRAS[e].nombre).join(", ")} (+$${extrasTotal})\n`;
-      }
-      text += `\n`;
-    } else {
-      const precio = PRICES[p.type][p.size];
-      total += precio;
-      text += `🍕 *Pizza ${i+1}*\n`;
-      text += `   ${PRICES[p.type].nombre} (${p.size})\n`;
-      if (p.crust) {
-        total += PRICES.orilla_queso.precio;
-        text += `   🧀 Orilla de queso (+$40)\n`;
-      }
-      if (p.extras?.length) {
-        const extrasTotal = p.extras.length * PRICES.extra.precio;
-        total += extrasTotal;
-        text += `   ➕ Extras: ${p.extras.map(e => EXTRAS[e].emoji + " " + EXTRAS[e].nombre).join(", ")} (+$${extrasTotal})\n`;
-      }
-      text += `   $${precio}\n\n`;
+    const precio = PRICES[p.type][p.size];
+    total += precio;
+    text += `🍕 *Pizza ${i+1}*\n`;
+    text += `   ${PRICES[p.type].nombre} (${p.size})\n`;
+    if (p.crust) {
+      total += PRICES.orilla_queso.precio;
+      text += `   🧀 Orilla de queso (+$40)\n`;
     }
+    if (p.extras?.length) {
+      const extrasTotal = p.extras.length * PRICES.extra.precio;
+      total += extrasTotal;
+      text += `   ➕ Extras: ${p.extras.map(e => EXTRAS[e].emoji + " " + EXTRAS[e].nombre).join(", ")} (+$${extrasTotal})\n`;
+    }
+    text += `   $${precio}\n\n`;
   });
   
   text += `━━━━━━━━━━━━━━━━━━\n`;
@@ -1821,31 +1634,20 @@ const buildNegocioSummary = (s) => {
   text += `👤 *Cliente:* ${telefonoFormateado}\n\n`;
   
   s.pizzas.forEach((p, i) => {
-    if (p.es_oferta) {
-      const extrasTotal = p.extras.length * PRICES.extra.precio;
-      total += OFERTA_PIZZA.precio_base + extrasTotal;
-      
-      text += `🎁 *Pizza ${i+1} (Oferta)*\n`;
-      text += `   Pepperoni Grande - $${OFERTA_PIZZA.precio_base}\n`;
-      if (p.extras?.length) {
-        text += `   ➕ Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
-      }
-    } else {
-      const precio = PRICES[p.type][p.size];
-      total += precio;
-      text += `🍕 *Pizza ${i+1}*\n`;
-      text += `   ${p.type} (${p.size})\n`;
-      if (p.crust) {
-        total += PRICES.orilla_queso.precio;
-        text += `   🧀 Orilla de queso (+$40)\n`;
-      }
-      if (p.extras?.length) {
-        const extrasTotal = p.extras.length * PRICES.extra.precio;
-        total += extrasTotal;
-        text += `   ➕ Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
-      }
-      text += `   $${precio}\n`;
+    const precio = PRICES[p.type][p.size];
+    total += precio;
+    text += `🍕 *Pizza ${i+1}*\n`;
+    text += `   ${p.type} (${p.size})\n`;
+    if (p.crust) {
+      total += PRICES.orilla_queso.precio;
+      text += `   🧀 Orilla de queso (+$40)\n`;
     }
+    if (p.extras?.length) {
+      const extrasTotal = p.extras.length * PRICES.extra.precio;
+      total += extrasTotal;
+      text += `   ➕ Extras: ${p.extras.join(", ")} (+$${extrasTotal})\n`;
+    }
+    text += `   $${precio}\n`;
   });
   
   text += `\n━━━━━━━━━━━━━━━━━━\n`;
@@ -1981,10 +1783,9 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V30 - ENVÍO GRATIS DINÁMICO (2+ PIZZAS) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V31 - ENVÍO GRATIS 2+ PIZZAS (LIMPIO) corriendo en puerto ${PORT}`);
   console.log(`📅 Fecha: ${new Date().toDateString()}`);
   console.log(`📌 Folio actual: ${folioActual}`);
-  console.log(`🎁 Oferta Pizza Pepperoni $100: ${ofertaPizzaActiva() ? 'ACTIVA' : 'INACTIVA'}`);
   console.log(`🚚 Promo Envío Gratis (2+ pizzas): ${promoEnvioGratisActiva() ? 'ACTIVA' : 'INACTIVA'} - SOLO OBRERA`);
   console.log(`📱 Sucursal REVOLUCIÓN: ${SUCURSALES.revolucion.telefono} (domicilio: ${SUCURSALES.revolucion.domicilio ? 'SÍ' : 'NO'})`);
   console.log(`📱 Sucursal LA LABOR: ${SUCURSALES.obrera.telefono} (domicilio: ${SUCURSALES.obrera.domicilio ? 'SÍ' : 'NO'})`);
