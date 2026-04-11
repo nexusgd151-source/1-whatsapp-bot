@@ -104,12 +104,19 @@ function guardarBloqueados() {
 // 🎁 CONFIGURACIÓN DE PROMOCIONES
 // =======================
 
-// 🆕 PROMOCIÓN DE ENVÍO GRATIS (2+ PIZZAS CUALQUIERA)
+// 🚚 PROMOCIÓN DE ENVÍO GRATIS (2+ PIZZAS CUALQUIERA) - NO SE MUESTRA AL INICIO
 const PROMO_ENVIO_GRATIS = {
   activa: true,  // 👈 ACTIVAR/DESACTIVAR ENVÍO GRATIS
   min_pizzas: 2,  // Mínimo de pizzas para envío gratis
   dias_validos: [5, 6, 0],  // Viernes, Sábado, Domingo
-  mensaje: "🚚 *¡ENVÍO GRATIS!*\nPide 2 o más pizzas y el envío va por nuestra cuenta.\n⚠️ *Solo en sucursal La Labor*"
+  
+  // Mensaje cuando se ACTIVA la promoción (2+ pizzas)
+  mensaje_activacion: "🎉 *¡FELICIDADES! ¡ENVÍO GRATIS ACTIVADO!* 🚚\n\n" +
+    "Por llevarte 2 o más pizzas, ¡el envío a domicilio es *TOTALMENTE GRATIS*!\n\n" +
+    "Disfruta de esta promoción exclusiva. 🍕✨",
+  
+  // Mensaje tip cuando lleva 1 pizza (opcional)
+  mensaje_tip: "💡 *TIP:* Agrega 1 pizza más y ¡obtén ENVÍO GRATIS! 🚚"
 };
 
 // OFERTA ESPECIAL DE PIZZA (INDEPENDIENTE)
@@ -141,9 +148,8 @@ function promoEnvioGratisActiva() {
   return PROMO_ENVIO_GRATIS.dias_validos.includes(hoy);
 }
 
-// 🆕 Función para verificar si aplica envío gratis (2+ pizzas, SOLO OBRERA)
+// Función para verificar si aplica envío gratis (2+ pizzas, SOLO OBRERA)
 function aplicaEnvioGratis(sucursalKey, pizzasCount, delivery) {
-  // Solo aplica para la sucursal Obrera (que tiene domicilio)
   if (sucursalKey !== "obrera") return false;
   if (!delivery) return false;
   if (!promoEnvioGratisActiva()) return false;
@@ -156,11 +162,10 @@ function aplicaEnvioGratis(sucursalKey, pizzasCount, delivery) {
 function verificarHorario() {
   const ahoraMexico = moment().tz("America/Mexico_City");
   const hora = ahoraMexico.hours();
-  const dia = ahoraMexico.day(); // 0=domingo, 1=lunes, 2=martes, ..., 6=sábado
+  const dia = ahoraMexico.day();
   
   console.log(`🇲🇽 Verificando horario: ${ahoraMexico.format('dddd DD/MM/YYYY HH:mm')}`);
   
-  // Martes cerrado (dia === 2)
   if (dia === 2) {
     return {
       abierto: false,
@@ -168,7 +173,6 @@ function verificarHorario() {
     };
   }
   
-  // Horario: 11:00 AM a 9:00 PM
   if (hora < 11 || hora >= 21) {
     return {
       abierto: false,
@@ -182,8 +186,8 @@ function verificarHorario() {
 // =======================
 // ⏰ CONFIGURACIÓN DE TIEMPOS
 // =======================
-const TIEMPO_MAXIMO_ACEPTACION = 60 * 60 * 1000; // 60 minutos
-const TIEMPO_REINTENTO = 5 * 60 * 1000; // 5 minutos para reintentar envíos fallidos
+const TIEMPO_MAXIMO_ACEPTACION = 60 * 60 * 1000;
+const TIEMPO_REINTENTO = 5 * 60 * 1000;
 
 // =======================
 // 🏪 CONFIGURACIÓN DE SUCURSALES
@@ -194,7 +198,7 @@ const SUCURSALES = {
     direccion: "Batalla de San Andres y Avenida Acceso Norte 418, Batalla de San Andrés Supermanzana Calla, 33100 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216391283842",
-    domicilio: false,  // 👈 NO TIENE DOMICILIO
+    domicilio: false,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
       cuenta: "722969010279408583",
@@ -206,7 +210,7 @@ const SUCURSALES = {
     direccion: "Av Solidaridad 11-local 3, Oriente 2, 33029 Delicias, Chih.",
     emoji: "🏪",
     telefono: "5216393992508",
-    domicilio: true,  // 👈 TIENE DOMICILIO
+    domicilio: true,
     horario: "Lun-Dom 11am-9pm (Martes cerrado)",
     mercadoPago: {
       cuenta: "722969010279408583",
@@ -327,7 +331,8 @@ const resetSession = (from) => {
     pedidoEnviadoEn: null,
     folio: null,
     reintentos: 0,
-    ultimoReintento: null
+    ultimoReintento: null,
+    envioGratisNotificado: false  // 🆕 Para no repetir el mensaje de activación
   };
 };
 
@@ -540,7 +545,6 @@ app.get("/test-business", async (req, res) => {
 // FUNCIONES UI
 // =======================
 
-// Mensaje de aviso de oferta de pizza
 const avisoOfertaPizza = () => {
   return buttons(
     OFERTA_PIZZA.mensaje_aviso + "\n\n¿Qué deseas hacer?",
@@ -552,7 +556,6 @@ const avisoOfertaPizza = () => {
   );
 };
 
-// Confirmación de oferta de pizza
 const confirmarOfertaPizza = () => {
   return buttons(
     OFERTA_PIZZA.mensaje_confirmacion + "\n\n¿Quieres agregar esta pizza?",
@@ -562,6 +565,20 @@ const confirmarOfertaPizza = () => {
     ]
   );
 };
+
+// 🆕 Función para verificar y notificar envío gratis
+async function verificarYNotificarEnvioGratis(s, from) {
+  // Solo para Obrera y si la promo está activa
+  if (s.sucursal !== "obrera" || !promoEnvioGratisActiva()) return;
+  
+  const pizzasCount = s.pizzas.length;
+  
+  // Si tiene 2+ pizzas y no se ha notificado, mostrar mensaje de activación
+  if (pizzasCount >= PROMO_ENVIO_GRATIS.min_pizzas && !s.envioGratisNotificado) {
+    s.envioGratisNotificado = true;
+    await sendMessage(from, textMsg(PROMO_ENVIO_GRATIS.mensaje_activacion));
+  }
+}
 
 // =======================
 // WEBHOOK - POST
@@ -594,7 +611,6 @@ app.post("/webhook", async (req, res) => {
       
       console.log(`🏪 Botón de sucursal: ${replyId} de ${fromSucursal}`);
       
-      // BLOQUEAR CLIENTE
       if (replyId.startsWith("bloquear_")) {
         const num = replyId.replace("bloquear_", "");
         blockedNumbers.add(num);
@@ -603,7 +619,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // DESBLOQUEAR CLIENTE
       if (replyId.startsWith("desbloquear_")) {
         const num = replyId.replace("desbloquear_", "");
         if (blockedNumbers.has(num)) {
@@ -614,7 +629,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // PAGO CONFIRMADO
       if (replyId.startsWith("pago_ok_")) {
         const partes = replyId.split("_");
         const cliente = partes[2];
@@ -659,7 +673,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // PAGO RECHAZADO
       if (replyId.startsWith("pago_no_")) {
         const partes = replyId.split("_");
         const cliente = partes[2];
@@ -695,7 +708,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // ACEPTAR PEDIDO
       if (replyId.startsWith("aceptar_")) {
         const pedidoId = replyId.replace("aceptar_", "");
         console.log(`✅ Procesando aceptación de pedido: ${pedidoId}`);
@@ -749,7 +761,6 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
       
-      // RECHAZAR PEDIDO
       if (replyId.startsWith("rechazar_")) {
         const pedidoId = replyId.replace("rechazar_", "");
         console.log(`❌ Procesando rechazo de pedido: ${pedidoId}`);
@@ -993,7 +1004,6 @@ app.post("/webhook", async (req, res) => {
         
         s.pizzaSeleccionada = input;
         
-        // Si es pepperoni Y la oferta de pizza está activa
         if (input === "pepperoni" && ofertaPizzaActiva()) {
           s.step = "aviso_oferta";
           reply = avisoOfertaPizza();
@@ -1075,6 +1085,10 @@ app.post("/webhook", async (req, res) => {
         } else if (input === "extra_no") {
           s.pizzas.push({ ...s.currentPizza });
           s.currentPizza = { extras: [], crust: false };
+          
+          // 🆕 Verificar si se activó el envío gratis
+          await verificarYNotificarEnvioGratis(s, from);
+          
           s.step = "another_pizza";
           reply = anotherPizza(s);
         } else {
@@ -1099,6 +1113,10 @@ app.post("/webhook", async (req, res) => {
         } else if (input === "extra_no") {
           s.pizzas.push({ ...s.currentPizza });
           s.currentPizza = { extras: [], crust: false };
+          
+          // 🆕 Verificar si se activó el envío gratis
+          await verificarYNotificarEnvioGratis(s, from);
+          
           s.step = "another_pizza";
           reply = anotherPizza(s);
         } else {
@@ -1126,68 +1144,10 @@ app.post("/webhook", async (req, res) => {
             opciones
           );
         } else if (input === "no") {
-          // 🆕 VERIFICAR ENVÍO GRATIS PARA OBRERA
-          const pizzasCount = s.pizzas.length;
-          
-          if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, pizzasCount, true)) {
-            await sendMessage(from, textMsg(
-              "🎉 *¡FELICIDADES!*\n\n" +
-              `Tienes ${pizzasCount} pizzas en tu pedido.\n` +
-              "¡El envío a domicilio es *GRATIS*! 🚚\n\n" +
-              "Continúa para finalizar tu pedido."
-            ));
-          } else if (s.sucursal === "obrera" && pizzasCount === 1 && promoEnvioGratisActiva()) {
-            s.step = "preguntar_agregar_para_envio";
-            reply = buttons(
-              "💡 *¿SABÍAS QUE...?*\n\n" +
-              `Si agregas 1 pizza más, ¡el envío a domicilio es *GRATIS*! 🚚\n\n` +
-              "¿Quieres agregar otra pizza para aprovechar la promoción?",
-              [
-                { id: "si_agregar_para_envio", title: "✅ Sí, agregar" },
-                { id: "no_continuar_sin_envio", title: "❌ No, continuar" }
-              ]
-            );
-            break;
-          }
-          
           s.step = "delivery_method";
           reply = deliveryButtons(s);
         } else {
           reply = merge(textMsg("❌ Opción no válida"), anotherPizza(s));
-        }
-        break;
-        
-      case "preguntar_agregar_para_envio":
-        if (input === "si_agregar_para_envio") {
-          s.step = "elegir_tipo_pizza";
-          const opciones = [
-            { id: "normal", title: "🍕 Pizza normal" }
-          ];
-          
-          if (ofertaPizzaActiva()) {
-            opciones.unshift({ id: "otra_oferta", title: "🎁 Pizza oferta" });
-          }
-          
-          opciones.push({ id: "cancelar", title: "❌ Cancelar" });
-          
-          reply = buttons(
-            "🍕 *¡APROVECHA EL ENVÍO GRATIS!*\n\n" +
-            "Agrega otra pizza y el envío va por nuestra cuenta.\n\n" +
-            "¿Qué tipo de pizza quieres?",
-            opciones
-          );
-        } else if (input === "no_continuar_sin_envio") {
-          s.step = "delivery_method";
-          reply = deliveryButtons(s);
-        } else {
-          reply = buttons(
-            "💡 *¿Quieres agregar otra pizza?*\n\n" +
-            "Con 2+ pizzas, ¡el envío es GRATIS!",
-            [
-              { id: "si_agregar_para_envio", title: "✅ Sí, agregar" },
-              { id: "no_continuar_sin_envio", title: "❌ No, continuar" }
-            ]
-          );
         }
         break;
 
@@ -1468,17 +1428,9 @@ const welcomeMessage = (s) => {
   
   let mensaje = `🏪 *${suc.nombre}*\n\n`;
   
-  // Mostrar promociones activas
+  // Solo mostrar oferta de pizza, NO envío gratis
   if (ofertaPizzaActiva()) {
-    mensaje += `🎁 *OFERTA:* Pepperoni Grande $100\n`;
-  }
-  
-  if (s.sucursal === "obrera" && promoEnvioGratisActiva()) {
-    mensaje += `🚚 *PROMO:* ¡Envío GRATIS en 2+ pizzas!\n`;
-  }
-  
-  if (ofertaPizzaActiva() || (s.sucursal === "obrera" && promoEnvioGratisActiva())) {
-    mensaje += `\n`;
+    mensaje += `🎁 *OFERTA:* Pepperoni Grande $100\n\n`;
   }
   
   mensaje += "¿Qué deseas hacer?";
@@ -1500,15 +1452,7 @@ const menuText = (s) => {
   let menu = `📖 *MENÚ - ${suc.nombre}*\n\n`;
   
   if (ofertaPizzaActiva()) {
-    menu += `🎁 *OFERTA ESPECIAL:* Pepperoni Grande $100\n`;
-  }
-  
-  if (s.sucursal === "obrera" && promoEnvioGratisActiva()) {
-    menu += `🚚 *PROMO:* Envío GRATIS en 2+ pizzas\n`;
-  }
-  
-  if (ofertaPizzaActiva() || (s.sucursal === "obrera" && promoEnvioGratisActiva())) {
-    menu += `\n`;
+    menu += `🎁 *OFERTA ESPECIAL:* Pepperoni Grande $100\n\n`;
   }
   
   menu += `🍕 Pepperoni: $130 / $180\n` +
@@ -1533,9 +1477,9 @@ const menuText = (s) => {
 const pizzaList = (s) => {
   let mensaje = "🍕 *ELIGE TU PIZZA*";
   
-  // Agregar recordatorio de envío gratis si aplica
+  // Tip sutil si está en Obrera y tiene 1 pizza
   if (s.sucursal === "obrera" && promoEnvioGratisActiva() && s.pizzas.length === 1) {
-    mensaje += "\n\n💡 *¡Agrega 1 pizza más y obtén envío GRATIS!*";
+    mensaje += "\n\n💡 *TIP:* ¡1 pizza más = Envío GRATIS!";
   }
   
   return list(mensaje, [{
@@ -1617,7 +1561,7 @@ const askMoreExtras = () => {
 const anotherPizza = (s) => {
   let mensaje = "🍕 *¿OTRA PIZZA?*";
   
-  // Recordatorio de envío gratis
+  // Tip sutil si está en Obrera y tiene 1 pizza
   if (s.sucursal === "obrera" && promoEnvioGratisActiva() && s.pizzas.length === 1) {
     mensaje += "\n\n💡 *¡1 pizza más = Envío GRATIS!*";
   }
@@ -1634,7 +1578,7 @@ const deliveryButtons = (s) => {
   const opciones = [];
   
   if (suc.domicilio) {
-    // Mostrar GRATIS si aplica la promoción
+    // Mostrar GRATIS si aplica (2+ pizzas)
     if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
       opciones.push({ id: "domicilio", title: "🚚 A domicilio (GRATIS)" });
     } else {
@@ -1695,10 +1639,9 @@ const confirmacionFinal = (s) => {
   
   resumen += `\n💰 *TOTAL: $${total}*\n`;
   
-  // Mostrar envío gratis si aplica
   if (s.delivery) {
     if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
-      resumen += `🚚 Envío: *GRATIS* (Promoción 2+ pizzas)\n`;
+      resumen += `🚚 Envío: *GRATIS* 🎉\n`;
     } else {
       resumen += `🚚 Envío: +$40\n`;
     }
@@ -1713,7 +1656,7 @@ const confirmacionFinal = (s) => {
   ]);
 };
 
-// 🆕 FUNCIÓN calcularTotal (ENVÍO GRATIS PARA 2+ PIZZAS)
+// Calcular total
 const calcularTotal = (s) => {
   let total = 0;
   
@@ -1728,7 +1671,7 @@ const calcularTotal = (s) => {
     }
   });
   
-  // Aplicar envío gratis si corresponde (2+ pizzas en Obrera)
+  // Envío gratis para 2+ pizzas en Obrera
   if (s.delivery) {
     if (!aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
       total += PRICES.envio.precio;
@@ -1738,7 +1681,7 @@ const calcularTotal = (s) => {
   return total;
 };
 
-// 🆕 FUNCIÓN buildPreliminarSummary
+// Build Preliminar Summary
 const buildPreliminarSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
   let total = 0;
@@ -1780,7 +1723,7 @@ const buildPreliminarSummary = (s) => {
   if (s.delivery) {
     if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
       text += `🚚 *Domicilio*\n`;
-      text += `   Envío: 🎉 *GRATIS* (Promoción 2+ pizzas)\n`;
+      text += `   Envío: 🎉 *GRATIS*\n`;
     } else {
       text += `🚚 *Domicilio*\n`;
       text += `   Envío: +$${PRICES.envio.precio}\n`;
@@ -1799,7 +1742,7 @@ const buildPreliminarSummary = (s) => {
   return textMsg(text);
 };
 
-// 🆕 FUNCIÓN buildClienteSummary
+// Build Cliente Summary
 const buildClienteSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
   const telefonoFormateado = formatearNumero(s.clientNumber);
@@ -1844,7 +1787,7 @@ const buildClienteSummary = (s) => {
   if (s.delivery) {
     if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
       text += `🚚 *Envío a domicilio*\n`;
-      text += `   🎉 *GRATIS* (Promoción 2+ pizzas)\n`;
+      text += `   🎉 *GRATIS*\n`;
     } else {
       total += PRICES.envio.precio;
       text += `🚚 *Envío a domicilio*\n`;
@@ -1866,7 +1809,7 @@ const buildClienteSummary = (s) => {
   return textMsg(text);
 };
 
-// 🆕 FUNCIÓN buildNegocioSummary
+// Build Negocio Summary
 const buildNegocioSummary = (s) => {
   const suc = SUCURSALES[s.sucursal];
   const telefonoFormateado = formatearNumero(s.clientNumber);
@@ -1911,7 +1854,7 @@ const buildNegocioSummary = (s) => {
   if (s.delivery) {
     if (s.sucursal === "obrera" && aplicaEnvioGratis(s.sucursal, s.pizzas.length, true)) {
       text += `🚚 *Domicilio*\n`;
-      text += `   Envío: 🎉 *GRATIS* (Promoción 2+ pizzas)\n`;
+      text += `   Envío: 🎉 *GRATIS*\n`;
     } else {
       text += `🚚 *Domicilio*\n`;
       text += `   Envío: +$${PRICES.envio.precio}\n`;
@@ -2038,7 +1981,7 @@ setInterval(() => {
 // =======================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Bot V29 - ENVÍO GRATIS 2+ PIZZAS (SOLO OBRERA) corriendo en puerto ${PORT}`);
+  console.log(`🚀 Bot V30 - ENVÍO GRATIS DINÁMICO (2+ PIZZAS) corriendo en puerto ${PORT}`);
   console.log(`📅 Fecha: ${new Date().toDateString()}`);
   console.log(`📌 Folio actual: ${folioActual}`);
   console.log(`🎁 Oferta Pizza Pepperoni $100: ${ofertaPizzaActiva() ? 'ACTIVA' : 'INACTIVA'}`);
@@ -2047,4 +1990,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`📱 Sucursal LA LABOR: ${SUCURSALES.obrera.telefono} (domicilio: ${SUCURSALES.obrera.domicilio ? 'SÍ' : 'NO'})`);
   console.log(`⏰ Tiempo para aceptar: 60 MINUTOS`);
   console.log(`🔄 Reintentos: Cada 5 minutos (máx 3 intentos)`);
+  console.log(`✨ La promo de envío gratis se ACTIVA al agregar 2+ pizzas`);
 });
